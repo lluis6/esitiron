@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS usuarios (
     totp_enabled    TINYINT(1)      NOT NULL DEFAULT 0,
     fecha_registro  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     activo          TINYINT(1)      NOT NULL DEFAULT 1,
+    is_admin        TINYINT(1)      NOT NULL DEFAULT 0,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB;
 

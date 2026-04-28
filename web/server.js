@@ -117,6 +117,7 @@ async function initDB() {
   await dbPool.execute(`UPDATE tiquets SET uuid = UUID() WHERE uuid IS NULL`).catch(() => {});
   await dbPool.execute(`ALTER TABLE compras ADD COLUMN IF NOT EXISTS nombre_original VARCHAR(500) DEFAULT NULL`).catch(() => {});
   await dbPool.execute(`ALTER TABLE compras ADD COLUMN IF NOT EXISTS curado TINYINT(1) NOT NULL DEFAULT 0`).catch(() => {});
+  await dbPool.execute(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS is_admin TINYINT(1) NOT NULL DEFAULT 0`).catch(() => {});
   await dbPool.execute(`ALTER TABLE productos_maestros ADD COLUMN IF NOT EXISTS foto_url VARCHAR(500) DEFAULT NULL`).catch(() => {});
   await dbPool.execute(`ALTER TABLE productos_maestros ADD COLUMN IF NOT EXISTS codigo_barras VARCHAR(50) DEFAULT NULL`).catch(() => {});
 
@@ -309,6 +310,14 @@ const auth = (req, res, next) => {
   if (!req.session.usuario) return res.redirect('/login?error=Debes+iniciar+sesión');
   next();
 };
+const adminOnly = (req, res, next) => {
+  if (!req.session.usuario?.is_admin) return res.redirect('/dashboard?error=No+autorizado');
+  next();
+};
+const adminOnlyApi = (req, res, next) => {
+  if (!req.session.usuario?.is_admin) return res.status(403).json({ error: 'No autorizado' });
+  next();
+};
 
 // ── ENDPOINTS TÉCNICOS (SIN AUTH) ────────────────────────────
 app.get('/health', (_,res) => res.json({ status:'ok' }));
@@ -438,7 +447,12 @@ env.addFilter('formatDateShort', v => {
 });
 
 function navLocals(req) {
-  return { usuario: req.session.usuario?.username || '', usuario_email: req.session.usuario?.email || '', avatar_url: req.session.usuario?.avatar ? '/avatar/' + path.basename(req.session.usuario.avatar) : null };
+  return {
+    usuario: req.session.usuario?.username || '',
+    usuario_email: req.session.usuario?.email || '',
+    avatar_url: req.session.usuario?.avatar ? '/avatar/' + path.basename(req.session.usuario.avatar) : null,
+    es_admin: Boolean(req.session.usuario?.is_admin),
+  };
 }
 
 // ── CONSULTAS BD ─────────────────────────────────────────────
@@ -636,10 +650,22 @@ app.post('/login', async (req,res) => {
     if (!u || !bcryptjs.compareSync(password, u.password_hash) || !u.activo)
       return res.redirect('/login?error=Usuario+o+contraseña+incorrectos');
     if (u.totp_enabled) {
-      req.session.totp_pending = { id: u.id, username: u.username, email: u.email, avatar: u.avatar || null };
+      req.session.totp_pending = {
+        id: u.id,
+        username: u.username,
+        email: u.email,
+        avatar: u.avatar || null,
+        is_admin: u.is_admin === 1,
+      };
       return res.redirect('/login/2fa');
     }
-    req.session.usuario = { id: u.id, username: u.username, email: u.email, avatar: u.avatar || null };
+    req.session.usuario = {
+      id: u.id,
+      username: u.username,
+      email: u.email,
+      avatar: u.avatar || null,
+      is_admin: u.is_admin === 1,
+    };
     return res.redirect('/dashboard');
   } catch(e) { console.error('[Auth]', e.message); res.redirect('/login?error=Error+servidor'); }
 });
@@ -796,10 +822,6 @@ app.post('/tiquet/:uuid/eliminar', auth, async (req,res) => {
 });
 
 // ── PRODUCTOS ────────────────────────────────────────────────
-app.get('/opf/wizard', auth, (req, res) => {
-  res.render('opf_wizard.html', { ...navLocals(req), messages: [] });
-});
-
 app.get('/productos', auth, async (req, res) => {
   const uid = req.session.usuario.id;
   const { pais = '', supermercado = '' } = req.query;
@@ -832,6 +854,26 @@ app.get('/productos', auth, async (req, res) => {
       filtro_pais: pais, filtro_supermercado: supermercado, messages: [],
     });
   } catch(e) { console.error('[Productos]', e.message); res.redirect('/dashboard'); }
+});
+
+app.get('/productos/verificar', auth, adminOnly, async (req, res) => {
+  try {
+    const [pendientes] = await dbPool.execute(`
+      SELECT vb.id, vb.codigo_barras, vb.creado_en, vb.id_producto,
+             pm.nombre, pm.marca, pm.foto_url, pm.codigo_barras AS codigo_actual
+      FROM verificaciones_barcode vb
+      JOIN productos_maestros pm ON pm.id = vb.id_producto
+      WHERE vb.estado = 'pendiente'
+      ORDER BY vb.creado_en DESC
+    `);
+    const messages = [];
+    if (req.query.error) messages.push(['danger', decodeURIComponent(req.query.error)]);
+    if (req.query.success) messages.push(['success', decodeURIComponent(req.query.success)]);
+    res.render('productos_verificar.html', { ...navLocals(req), pendientes, messages });
+  } catch (e) {
+    console.error('[Verificar]', e.message);
+    res.redirect('/productos?error=Error+al+cargar+verificaciones');
+  }
 });
 
 app.get('/api/producto/:id/precios', auth, async (req, res) => {
@@ -932,6 +974,12 @@ function sanitizarTexto(valor, maxLen) {
   return String(valor || '').trim().replace(/\s+/g, ' ').slice(0, maxLen);
 }
 
+function parseBool(valor) {
+  if (typeof valor === 'boolean') return valor;
+  if (typeof valor === 'number') return valor === 1;
+  return ['true', '1', 'si', 'sí', 'yes', 'on'].includes(String(valor || '').toLowerCase());
+}
+
 function opfUrl(pathname) {
   const base = OPF_BASE_URL.replace(/\/+$/, '');
   const path = String(pathname || '').replace(/^\/+/, '');
@@ -1028,9 +1076,21 @@ async function upsertProductoMaestroFromOpf({ ean, nombre, marca, foto_url }) {
     return existing.id;
   }
 
+  const [[pending]] = await dbPool.execute(
+    "SELECT id_producto FROM verificaciones_barcode WHERE codigo_barras = ? AND estado = 'pendiente' LIMIT 1",
+    [eanClean]
+  );
+  if (pending) {
+    await dbPool.execute(
+      'UPDATE productos_maestros SET nombre = COALESCE(nombre, ?), marca = COALESCE(marca, ?), foto_url = COALESCE(foto_url, ?) WHERE id = ?',
+      [nombreClean, marcaClean, fotoClean, pending.id_producto]
+    );
+    return pending.id_producto;
+  }
+
   const [ins] = await dbPool.execute(
-    'INSERT INTO productos_maestros (nombre, marca, categoria, foto_url, codigo_barras) VALUES (?,?,?,?,?)',
-    [nombreClean, marcaClean, 'Alimentacion', fotoClean, eanClean]
+    'INSERT INTO productos_maestros (nombre, marca, categoria, foto_url) VALUES (?,?,?,?)',
+    [nombreClean, marcaClean, 'Alimentacion', fotoClean]
   );
   return ins.insertId;
 }
@@ -1184,7 +1244,7 @@ app.post('/api/opf/create', auth, (req, res) => {
 
 // --- 7. VINCULACIÓN INTELIGENTE: Mueve compras, borra basura y añade redirecciones ---
 app.post('/api/compras/vincular', auth, async (req, res) => {
-  const { id_compra, id_producto_maestro, producto_externo } = req.body;
+  const { id_compra, id_producto_maestro, producto_externo, codigo_barras, confirmar_referencia } = req.body;
   const uid = req.session.usuario.id;
   const conn = await dbPool.getConnection();
   try {
@@ -1204,16 +1264,31 @@ app.post('/api/compras/vincular', auth, async (req, res) => {
     const nombreEnTiquet = compraRows[0].nombre_original;
 
     // 2. Buscar o Crear el Maestro Oficial (de OFF o de la BDD local)
-    let idMaestroOficial = id_producto_maestro;
-    let barcode = producto_externo ? producto_externo.codigo_barras : null;
+    let idMaestroOficial = id_producto_maestro ? parseInt(id_producto_maestro, 10) : null;
+    let barcode = producto_externo ? normalizarEan(producto_externo.codigo_barras) : null;
+    if (!barcode && codigo_barras) barcode = normalizarEan(codigo_barras);
+    const requiereConfirmacion = parseBool(confirmar_referencia);
 
     if (producto_externo) {
-      const [existe] = await conn.execute('SELECT id FROM productos_maestros WHERE codigo_barras = ?', [barcode]);
-      if (existe.length > 0) {
-        idMaestroOficial = existe[0].id;
-      } else {
+      if (barcode) {
+        const [[existente]] = await conn.execute('SELECT id FROM productos_maestros WHERE codigo_barras = ? LIMIT 1', [barcode]);
+        if (existente) {
+          idMaestroOficial = existente.id;
+        } else {
+          const [[pendiente]] = await conn.execute(
+            "SELECT id_producto FROM verificaciones_barcode WHERE codigo_barras = ? AND estado = 'pendiente' LIMIT 1",
+            [barcode]
+          );
+          if (pendiente) idMaestroOficial = pendiente.id_producto;
+        }
+      }
+      if (!idMaestroOficial) {
+        const nombreClean = sanitizarTexto(producto_externo.nombre, 200).toUpperCase() || 'DESCONOCIDO';
+        const marcaClean = sanitizarTexto(producto_externo.marca, 100).toUpperCase() || 'GENERICA';
+        const fotoClean = producto_externo.foto_url ? String(producto_externo.foto_url).slice(0, 500) : null;
         const [ins] = await conn.execute(
-          'INSERT INTO productos_maestros (nombre, marca, categoria, foto_url, codigo_barras) VALUES (?,?,?,?,?)',[producto_externo.nombre.toUpperCase(), (producto_externo.marca || 'Genérica').toUpperCase(), 'Alimentacion', producto_externo.foto_url, barcode]
+          'INSERT INTO productos_maestros (nombre, marca, categoria, foto_url) VALUES (?,?,?,?)',
+          [nombreClean, marcaClean, 'Alimentacion', fotoClean]
         );
         idMaestroOficial = ins.insertId;
       }
@@ -1249,22 +1324,30 @@ app.post('/api/compras/vincular', auth, async (req, res) => {
       await conn.execute('UPDATE compras SET id_producto = ?, curado = 1 WHERE id = ?', [idMaestroOficial, id_compra]);
     }
 
-    // 5. Crear la verificación de código de barras (Votos Colaborativos)
+    // 5. Crear la verificación de código de barras (pendiente de admin)
     if (barcode) {
-      const [verifRows] = await conn.execute(`SELECT id FROM verificaciones_barcode WHERE id_producto = ? AND codigo_barras = ?`, [idMaestroOficial, barcode]);
-      let verifId;
-      if (verifRows.length === 0) {
-          const[insertVerif] = await conn.execute(`INSERT INTO verificaciones_barcode (id_producto, codigo_barras, votos_si) VALUES (?, ?, 0)`, [idMaestroOficial, barcode]);
-          verifId = insertVerif.insertId;
-      } else {
-          verifId = verifRows[0].id;
+      const [[barcodeAsignado]] = await conn.execute(
+        'SELECT id FROM productos_maestros WHERE codigo_barras = ? LIMIT 1',
+        [barcode]
+      );
+      if (barcodeAsignado && barcodeAsignado.id !== idMaestroOficial) {
+        throw new Error('El código de barras ya está asignado a otro producto.');
       }
-      
-      const [votoResult] = await conn.execute(`INSERT IGNORE INTO votos_usuario (id_usuario, id_verificacion, voto) VALUES (?, ?, 'si')`,[uid, verifId]);
-      
-      if (votoResult.affectedRows > 0) {
-          await conn.execute(`UPDATE verificaciones_barcode SET votos_si = votos_si + 1 WHERE id = ?`, [verifId]);
-          await verificarConsenso(conn, verifId);
+      const barcodeYaAsignado = Boolean(barcodeAsignado && barcodeAsignado.id === idMaestroOficial);
+      const [verifRows] = await conn.execute(
+        'SELECT id FROM verificaciones_barcode WHERE id_producto = ? AND codigo_barras = ?',
+        [idMaestroOficial, barcode]
+      );
+      if (verifRows.length === 0 && !barcodeYaAsignado) {
+        if (!requiereConfirmacion) {
+          await conn.rollback();
+          return res.status(409).json({ error: 'Confirmación requerida para añadir la referencia.' });
+        }
+        await conn.execute(
+          `INSERT INTO verificaciones_barcode (id_producto, codigo_barras, votos_si, votos_no, estado)
+           VALUES (?, ?, 0, 0, 'pendiente')`,
+          [idMaestroOficial, barcode]
+        );
       }
     }
 
@@ -1279,8 +1362,54 @@ app.post('/api/compras/vincular', auth, async (req, res) => {
   }
 });
 
+app.post('/api/compras/desvincular', auth, async (req, res) => {
+  const { id_compra } = req.body;
+  const uid = req.session.usuario.id;
+  const conn = await dbPool.getConnection();
+  try {
+    const idCompra = parseInt(id_compra, 10);
+    if (!Number.isFinite(idCompra)) return res.status(400).json({ error: 'Compra inválida' });
+
+    await conn.beginTransaction();
+    const [[compra]] = await conn.execute(
+      'SELECT id, id_producto, nombre_original FROM compras WHERE id = ? AND id_usuario = ?',
+      [idCompra, uid]
+    );
+    if (!compra) {
+      await conn.rollback();
+      return res.status(404).json({ error: 'Compra no encontrada' });
+    }
+
+    const nombre = (compra.nombre_original || '').trim();
+    const nombreBase = (nombre ? nombre.toUpperCase() : 'PRODUCTO MANUAL').slice(0, 200);
+    const [ins] = await conn.execute(
+      'INSERT INTO productos_maestros (nombre, categoria) VALUES (?, ?)',
+      [nombreBase || 'PRODUCTO MANUAL', 'Otros']
+    );
+    await conn.execute(
+      'UPDATE compras SET id_producto = ?, curado = 0 WHERE id = ?',
+      [ins.insertId, idCompra]
+    );
+    if (nombre) {
+      await conn.execute(
+        'DELETE FROM diccionario_productos WHERE nombre_en_tiquet = ? AND id_producto_maestro = ?',
+        [nombreBase, compra.id_producto]
+      );
+    }
+
+    await conn.commit();
+    res.json({ success: true });
+  } catch (e) {
+    await conn.rollback();
+    console.error('[Desvincular]', e.message);
+    res.status(500).json({ error: 'No se pudo desvincular' });
+  } finally {
+    conn.release();
+  }
+});
+
 // --- 8. VOTAR VERIFICACIONES DE CÓDIGO DE BARRAS ---
-app.post('/api/verificaciones/votar', auth, async (req, res) => {
+app.post('/api/verificaciones/votar', auth, adminOnlyApi, async (req, res) => {
   const { id_verificacion, voto } = req.body;
   const uid = req.session.usuario.id;
   if (!['si', 'no'].includes(voto)) return res.status(400).json({ error: 'Voto inválido' });
@@ -1299,6 +1428,61 @@ app.post('/api/verificaciones/votar', auth, async (req, res) => {
     const [[updated]] = await dbPool.execute('SELECT votos_si, votos_no, estado FROM verificaciones_barcode WHERE id = ?',[id_verificacion]);
     res.json({ success: true, ...updated });
   } catch(e) { await conn.rollback(); console.error('[Votar]', e.message); res.status(500).json({ error: e.message }); } finally { conn.release(); }
+});
+
+app.post('/api/verificaciones/admin', auth, adminOnlyApi, async (req, res) => {
+  const { id_verificacion, accion } = req.body;
+  const idVerif = parseInt(id_verificacion, 10);
+  if (!Number.isFinite(idVerif)) return res.status(400).json({ error: 'Verificación inválida' });
+  if (!['aprobar', 'rechazar'].includes(accion)) return res.status(400).json({ error: 'Acción inválida' });
+
+  const conn = await dbPool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [[verif]] = await conn.execute(
+      "SELECT * FROM verificaciones_barcode WHERE id = ? AND estado = 'pendiente'",
+      [idVerif]
+    );
+    if (!verif) {
+      await conn.rollback();
+      return res.status(404).json({ error: 'Verificación no encontrada' });
+    }
+
+    const [[producto]] = await conn.execute('SELECT codigo_barras FROM productos_maestros WHERE id = ?', [verif.id_producto]);
+    if (!producto) {
+      await conn.rollback();
+      return res.status(404).json({ error: 'Producto no encontrado' });
+    }
+
+    if (accion === 'aprobar') {
+      const [[conflict]] = await conn.execute(
+        'SELECT id FROM productos_maestros WHERE codigo_barras = ? AND id <> ? LIMIT 1',
+        [verif.codigo_barras, verif.id_producto]
+      );
+      if (conflict) {
+        await conn.rollback();
+        return res.status(409).json({ error: 'El código de barras ya está asignado a otro producto.' });
+      }
+      if (producto.codigo_barras !== verif.codigo_barras) {
+        await conn.execute('UPDATE productos_maestros SET codigo_barras = ? WHERE id = ?', [verif.codigo_barras, verif.id_producto]);
+      }
+      await conn.execute("UPDATE verificaciones_barcode SET estado = 'verificado' WHERE id = ?", [idVerif]);
+    } else {
+      await conn.execute("UPDATE verificaciones_barcode SET estado = 'rechazado' WHERE id = ?", [idVerif]);
+      if (producto.codigo_barras === verif.codigo_barras) {
+        await conn.execute('UPDATE productos_maestros SET codigo_barras = NULL WHERE id = ?', [verif.id_producto]);
+      }
+    }
+
+    await conn.commit();
+    res.json({ success: true, estado: accion === 'aprobar' ? 'verificado' : 'rechazado' });
+  } catch (e) {
+    await conn.rollback();
+    console.error('[Verificar]', e.message);
+    res.status(500).json({ error: 'Error interno' });
+  } finally {
+    conn.release();
+  }
 });
 
 // ── EDITAR PRECIO DE UNA LÍNEA DE COMPRA ─────────────────────

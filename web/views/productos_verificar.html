@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Esítiron — Verificar referencias</title>
+  <script src="/js/theme.js"></script>
+  <link rel="stylesheet" href="/css/main.css">
+  <link rel="stylesheet" href="/css/class/todos_productos.css?v=20260428-2">
+  <link rel="icon" type="image/png" href="/img/logo.jpg">
+  <style>
+    .estado-pill { font-size:.75rem; padding:4px 8px; border-radius:20px; font-weight:700; }
+    .estado-pill.pendiente { background:rgba(245,158,11,.15); color:#d97706; }
+  </style>
+</head>
+<body>
+<nav class="navbar">
+  <div class="nav-links">
+    <a href="/dashboard" class="nav-link">📊 Dashboard</a>
+    <a href="/tiquets"   class="nav-link">🧾 Tiquets</a>
+    <a href="/productos" class="nav-link">🛍️ Productos</a>
+    <a href="/productos/verificar" class="nav-link active">✅ Verificar</a>
+    <a href="/grupos"    class="nav-link">👥 Grupos</a>
+  </div>
+  <div class="nav-right">
+    <div class="user-menu-wrap" id="userMenuWrap">
+      <div class="nav-user" id="userTrigger" onclick="toggleMenu()">
+        {% if avatar_url %}
+          <img src="{{ avatar_url }}" class="avatar" style="object-fit:cover;" alt="avatar">
+        {% else %}
+          <div class="avatar">{{ usuario[0] | upper }}</div>
+        {% endif %}
+        <span class="nav-username">{{ usuario }}</span>
+      </div>
+      <div class="user-dropdown" id="userDropdown">
+        <div class="ud-header">
+          <div class="ud-name">{{ usuario }}</div>
+          <div class="ud-email">{{ usuario_email }}</div>
+        </div>
+        <a href="/perfil" class="ud-item">👤 Mi perfil</a>
+        <div class="ud-divider"></div>
+        <a href="/logout" class="ud-item danger">⏻ Cerrar sesión</a>
+      </div>
+    </div>
+    <button class="theme-toggle" id="theme-toggle" title="Cambiar tema">
+      <span id="icon-sun">☀️</span>
+      <span id="icon-moon" style="display:none">🌙</span>
+    </button>
+  </div>
+</nav>
+
+<main class="main">
+  <div class="page-header" style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;">
+    <div>
+      <h1 class="page-title">Verificación de referencias</h1>
+      <p class="page-subtitle">Revisa los códigos de barras pendientes antes de asignarlos.</p>
+      <a href="/productos" class="btn-clear-filters" style="margin-top:0.6rem; display:inline-flex;">← Volver a productos</a>
+    </div>
+  </div>
+
+  {% if messages and messages.length > 0 %}
+  <div class="flashes">
+    {% for msg in messages %}
+    <div class="flash {{ msg[0] }}">{{ msg[1] }}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="card table-container">
+    <table>
+      <thead>
+        <tr>
+          <th>Producto</th>
+          <th>Código</th>
+          <th>Solicitado</th>
+          <th>Estado</th>
+          <th>Acciones</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for v in pendientes %}
+        <tr data-verif-id="{{ v.id }}">
+          <td>
+            <div style="display:flex; align-items:center; gap:10px;">
+              {% if v.foto_url %}
+                <img src="{{ v.foto_url }}" style="width:40px; height:40px; object-fit:contain; border-radius:6px; border:1px solid var(--border); background:white; flex-shrink:0;">
+              {% endif %}
+              <div>
+                <div style="font-weight:700; font-size:0.95rem; color:var(--text);">{{ v.nombre }}</div>
+                {% if v.marca and v.marca != 'GENÉRICO' %}
+                  <small style="color:var(--text2); font-size:0.78rem;">{{ v.marca | lower | replace('genérico','') | trim }}</small>
+                {% endif %}
+              </div>
+            </div>
+          </td>
+          <td style="font-weight:700;">{{ v.codigo_barras }}</td>
+          <td>{{ v.creado_en | formatDateShort }}</td>
+          <td><span class="estado-pill pendiente">Pendiente</span></td>
+          <td>
+            <div class="btn-acciones-wrap">
+              <button class="btn-accion" onclick="resolver('{{ v.id }}','aprobar')">✅ Aprobar</button>
+              <button class="btn-accion" style="border-color: var(--red); color: var(--red);" onclick="resolver('{{ v.id }}','rechazar')">✗ Rechazar</button>
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="5" style="text-align:center; padding:2.5rem; color:var(--text3);">
+            No hay verificaciones pendientes.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</main>
+
+<script>
+function toggleMenu() { document.getElementById('userDropdown').classList.toggle('open'); }
+document.addEventListener('click', e => {
+  const w = document.getElementById('userMenuWrap');
+  if (w && !w.contains(e.target)) document.getElementById('userDropdown').classList.remove('open');
+});
+
+async function resolver(id, accion) {
+  const texto = accion === 'aprobar' ? 'aprobar' : 'rechazar';
+  if (!confirm(`¿Confirmas ${texto} esta referencia?`)) return;
+  const res = await fetch('/api/verificaciones/admin', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id_verificacion: id, accion }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (res.ok) {
+    location.reload();
+  } else {
+    alert(data.error || 'No se pudo actualizar la verificación.');
+  }
+}
+</script>
+</body>
+</html>

@@ -234,6 +234,7 @@ Publicos (via proxy):
 - GET /preview (requiere sesion)
 - POST /confirmar (requiere sesion)
 - GET /productos (requiere sesion)
+- GET /productos/verificar (solo admin)
 - GET /metrics
 
 APIs internas de la app (requieren sesion):

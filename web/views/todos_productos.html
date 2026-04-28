@@ -135,10 +135,10 @@
       {% endif %}
     </div>
 
-    {% if not es_grupo %}
+    {% if es_admin and not es_grupo %}
     <div style="flex-shrink: 0;">
-      <a href="/opf/wizard" class="btn-primary" style="padding: 0.6rem 1.2rem; text-decoration: none; border-radius: 8px; font-weight: 600;">
-        + Anadir a OPF
+      <a href="/productos/verificar" class="btn-primary" style="padding: 0.6rem 1.2rem; text-decoration: none; border-radius: 8px; font-weight: 600;">
+        ✅ Verificar referencias
       </a>
     </div>
     {% endif %}
@@ -220,26 +220,14 @@
                 <br>
                 <small style="color:var(--text3); font-size:0.72rem;">{{ p.nombre_original }}</small>
 
-                {# ── OBJETIVO 3: Verificación colaborativa ── #}
+                {# ── Verificación pendiente (admin) ── #}
                 {% if not es_grupo and p.verificacion %}
                   <div style="margin-top:6px;">
-                    <span class="verif-badge {{ p.verificacion.estado }}">
-                      🤝 Verificación ({{ p.verificacion.votos_si }}✓ {{ p.verificacion.votos_no }}✗)
-                    </span>
-                    {% if not p.verificacion.mi_voto %}
-                      <span style="font-size:0.72rem; color:var(--text2); margin-left:4px;">¿Es correcto?</span>
-                      <button class="btn-voto si"
-                              title="Sí, es correcto"
-                              data-verif-id="{{ p.verificacion.id_verif }}"
-                              data-voto="si"
-                              onclick="votarDesdeBtn(this)">✓</button>
-                      <button class="btn-voto no"
-                              title="No, es incorrecto"
-                              data-verif-id="{{ p.verificacion.id_verif }}"
-                              data-voto="no"
-                              onclick="votarDesdeBtn(this)">✗</button>
+                    <span class="verif-badge pendiente">⏳ Verificación pendiente</span>
+                    {% if es_admin %}
+                      <a href="/productos/verificar" class="btn-accion" style="margin-left:6px;">Revisar</a>
                     {% else %}
-                      <span class="voto-ya">Tu voto: {{ '✓ Sí' if p.verificacion.mi_voto == 'si' else '✗ No' }}</span>
+                      <span class="voto-ya">Pendiente de revisión</span>
                     {% endif %}
                   </div>
                 {% endif %}
@@ -276,6 +264,14 @@
                       onclick="abrirVincularDesdeBtn(this)">
                 🔗 Vincular
               </button>
+              {% if p.curado %}
+              <button class="btn-accion"
+                      data-id-compra="{{ p.id_compra }}"
+                      data-original="{{ p.nombre_original | e }}"
+                      onclick="desvincularDesdeBtn(this)">
+                ⛔ Desvincular
+              </button>
+              {% endif %}
               {% endif %}
             </div>
           </td>
@@ -479,7 +475,12 @@ async function buscarEAN() {
       };
 
       renderEanFound(eanLookupProduct);
-      setEanStatus('Producto encontrado. Vinculando...', 'loading');
+      const confirmRef = confirm('¿Confirmas enviar este código de barras a verificación?');
+      if (!confirmRef) {
+        setEanStatus('Confirmación cancelada. No se añadió la referencia.', 'info');
+        return;
+      }
+      setEanStatus('Enviando referencia a verificación...', 'loading');
       await vincularEanExistente();
       return;
     }
@@ -522,9 +523,15 @@ async function vincularEanExistente() {
     const linkRes = await fetch('/api/compras/vincular', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id_compra: currentIdCompra, id_producto_maestro: importData.id })
+      body: JSON.stringify({
+        id_compra: currentIdCompra,
+        id_producto_maestro: importData.id,
+        codigo_barras: eanLookupProduct.ean,
+        confirmar_referencia: true
+      })
     });
-    if (!linkRes.ok) throw new Error('Error al vincular');
+    const linkData = await linkRes.json().catch(() => ({}));
+    if (!linkRes.ok) throw new Error(linkData.error || 'Error al vincular');
 
     location.reload();
   } catch (e) {
@@ -564,6 +571,12 @@ async function crearYVincularEAN(e) {
     return;
   }
 
+  const confirmRef = confirm('¿Confirmas enviar este código de barras a verificación?');
+  if (!confirmRef) {
+    setEanStatus('Confirmación cancelada. No se añadió la referencia.', 'info');
+    return;
+  }
+
   const formData = new FormData();
   formData.append('ean', ean);
   formData.append('nombre', nombre);
@@ -582,9 +595,15 @@ async function crearYVincularEAN(e) {
       const linkRes = await fetch('/api/compras/vincular', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id_compra: currentIdCompra, id_producto_maestro: data.local_product_id })
+        body: JSON.stringify({
+          id_compra: currentIdCompra,
+          id_producto_maestro: data.local_product_id,
+          codigo_barras: ean,
+          confirmar_referencia: true
+        })
       });
-      if (!linkRes.ok) throw new Error('No se pudo vincular la compra');
+      const linkData = await linkRes.json().catch(() => ({}));
+      if (!linkRes.ok) throw new Error(linkData.error || 'No se pudo vincular la compra');
     }
 
     location.reload();
@@ -687,7 +706,14 @@ function createItem(p, isExternal) {
 
 async function vincular(p, isExternal) {
   const body = { id_compra: currentIdCompra };
-  if (isExternal) body.producto_externo = p;
+  if (isExternal) {
+    body.producto_externo = p;
+    if (p.codigo_barras) {
+      const confirmRef = confirm('¿Confirmas enviar este código de barras a verificación?');
+      if (!confirmRef) return;
+      body.confirmar_referencia = true;
+    }
+  }
   else body.id_producto_maestro = p.id;
 
   const res = await fetch('/api/compras/vincular', {
@@ -695,8 +721,9 @@ async function vincular(p, isExternal) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
+  const data = await res.json().catch(() => ({}));
   if (res.ok) location.reload();
-  else alert('Error al vincular');
+  else alert(data.error || 'Error al vincular');
 }
 
 // ── OBJETIVO 3: Votar ─────────────────────────────────────────
@@ -780,6 +807,22 @@ function abrirVincularDesdeBtn(btn) {
   const original = btn?.dataset?.original || '';
   if (!idCompra) return;
   abrirVincular(idCompra, original);
+}
+
+async function desvincularDesdeBtn(btn) {
+  const idCompra = btn?.dataset?.idCompra;
+  const original = btn?.dataset?.original || 'este producto';
+  if (!idCompra) return;
+  const confirmRef = confirm(`¿Desvincular "${original}"?`);
+  if (!confirmRef) return;
+  const res = await fetch('/api/compras/desvincular', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id_compra: idCompra }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (res.ok) location.reload();
+  else alert(data.error || 'No se pudo desvincular');
 }
 
 function votarDesdeBtn(btn) {
