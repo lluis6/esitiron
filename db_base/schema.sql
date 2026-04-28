@@ -165,6 +165,64 @@ CREATE TABLE IF NOT EXISTS votos_usuario (
 ) ENGINE=InnoDB;
 
 -- ─────────────────────────────────────────────────────────────
+-- 10. Sistema de Grupos Colaborativos
+-- ─────────────────────────────────────────────────────────────
+
+-- Grupos
+CREATE TABLE IF NOT EXISTS grupos (
+    id              INT UNSIGNED    NOT NULL AUTO_INCREMENT,
+    nombre          VARCHAR(100)    NOT NULL,
+    descripcion     VARCHAR(255)    DEFAULT NULL,
+    creador_id      INT UNSIGNED    NOT NULL,
+    creado_en       DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    FOREIGN KEY (creador_id) REFERENCES usuarios(id) ON DELETE CASCADE,
+    INDEX idx_grupos_creador (creador_id)
+) ENGINE=InnoDB;
+
+-- Miembros de grupo
+CREATE TABLE IF NOT EXISTS miembros_grupo (
+    id              INT UNSIGNED    NOT NULL AUTO_INCREMENT,
+    grupo_id        INT UNSIGNED    NOT NULL,
+    usuario_id      INT UNSIGNED    NOT NULL,
+    rol             ENUM('admin','miembro') NOT NULL DEFAULT 'miembro',
+    unido_en        DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_grupo_usuario (grupo_id, usuario_id),
+    FOREIGN KEY (grupo_id)   REFERENCES grupos(id)   ON DELETE CASCADE,
+    FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE,
+    INDEX idx_miembros_usuario (usuario_id)
+) ENGINE=InnoDB;
+
+-- Invitaciones internas (sin email)
+CREATE TABLE IF NOT EXISTS invitaciones (
+    id              INT UNSIGNED    NOT NULL AUTO_INCREMENT,
+    grupo_id        INT UNSIGNED    NOT NULL,
+    invitador_id    INT UNSIGNED    NOT NULL,
+    invitado_id     INT UNSIGNED    NOT NULL,
+    estado          ENUM('pendiente','aceptada','rechazada') NOT NULL DEFAULT 'pendiente',
+    creado_en       DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    respondido_en   DATETIME        DEFAULT NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_invitacion (grupo_id, invitado_id),
+    FOREIGN KEY (grupo_id)     REFERENCES grupos(id)   ON DELETE CASCADE,
+    FOREIGN KEY (invitador_id) REFERENCES usuarios(id) ON DELETE CASCADE,
+    FOREIGN KEY (invitado_id)  REFERENCES usuarios(id) ON DELETE CASCADE,
+    INDEX idx_inv_invitado (invitado_id, estado)
+) ENGINE=InnoDB;
+
+-- Relación tiquets ↔ grupos (muchos a muchos)
+CREATE TABLE IF NOT EXISTS tiquets_grupos (
+    tiquet_id       INT UNSIGNED    NOT NULL,
+    grupo_id        INT UNSIGNED    NOT NULL,
+    compartido_en   DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (tiquet_id, grupo_id),
+    FOREIGN KEY (tiquet_id) REFERENCES tiquets(id) ON DELETE CASCADE,
+    FOREIGN KEY (grupo_id)  REFERENCES grupos(id)  ON DELETE CASCADE,
+    INDEX idx_tg_grupo (grupo_id)
+) ENGINE=InnoDB;
+
+-- ─────────────────────────────────────────────────────────────
 -- VISTAS
 -- ─────────────────────────────────────────────────────────────
 CREATE OR REPLACE VIEW vista_resumen_tiquets AS

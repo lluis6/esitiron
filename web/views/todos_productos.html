@@ -6,7 +6,7 @@
   <title>Esítiron — {{ 'Productos del grupo' if es_grupo else 'Mis productos' }}</title>
   <script src="/js/theme.js"></script>
   <link rel="stylesheet" href="/css/main.css">
-  <link rel="stylesheet" href="/css/class/todos_productos.css">
+  <link rel="stylesheet" href="/css/class/todos_productos.css?v=20260428-2">
   <link rel="icon" type="image/png" href="/img/logo.jpg">
   <style>
     .estado-pill { font-size:.75rem; padding:4px 8px; border-radius:20px; font-weight:700; }
@@ -28,11 +28,50 @@
     </div>
     <button class="pl-close" onclick="cerrarPanel()">✕</button>
   </div>
-  <div class="vp-search-wrap">
+  <div class="vp-mode-toggle">
+    <button type="button" class="vp-toggle active" data-mode="nombre" onclick="setVincularModo('nombre')">Buscar por nombre</button>
+    <button type="button" class="vp-toggle" data-mode="ean" onclick="setVincularModo('ean')">Buscar por codigo</button>
+  </div>
+  <div class="vp-search-wrap" id="vpSearchWrap">
     <input type="text" id="vpSearchInput" class="vp-search" placeholder="Busca nombre o marca..." oninput="buscar(this.value)">
+  </div>
+  <div class="vp-barcode-wrap hidden" id="vpBarcodeWrap">
+    <div class="vp-barcode-title">🔎 Buscar por codigo de barras</div>
+    <div class="vp-barcode-row">
+      <input type="text" id="vpEanInput" class="vp-ean-input" placeholder="EAN/UPC (solo numeros)">
+      <button class="btn-accion btn-ean" type="button" onclick="buscarEAN()">Buscar</button>
+    </div>
+    <div id="vpEanStatus" class="vp-ean-status"></div>
+    <div id="vpEanFound" class="vp-ean-found hidden"></div>
+
+    <form id="vpEanForm" class="vp-ean-form hidden" onsubmit="crearYVincularEAN(event)">
+      <div class="vp-ean-badge">EAN <span id="vpEanBadgeValue"></span></div>
+      <div class="form-group">
+        <label for="vpNombre">Nombre del producto <span class="req">*</span></label>
+        <input type="text" id="vpNombre" name="nombre" class="wizard-input" required>
+      </div>
+      <div class="form-group">
+        <label for="vpMarca">Marca <span class="req">*</span></label>
+        <input type="text" id="vpMarca" name="marca" class="wizard-input" required>
+      </div>
+      <div class="form-group">
+        <label>Foto frontal <span class="req">*</span></label>
+        <div class="file-upload-wrap">
+          <input type="file" id="vpFoto" name="foto" accept="image/jpeg, image/png, image/webp" onchange="previewEanImage(this)">
+          <div class="file-upload-text" id="vpFileText">Haz clic para subir una imagen</div>
+          <img id="vpImgPreview" class="img-preview hidden">
+        </div>
+      </div>
+      <button type="submit" class="btn-primary w-full">Crear y vincular</button>
+    </form>
   </div>
   <div class="pl-body" id="vpResults">
     <p style="text-align:center; color:var(--text3); padding-top:2rem;">Empieza a escribir para buscar...</p>
+  </div>
+  <div id="vpNoResultsCta" class="vp-empty-cta hidden">
+    <div class="vp-empty-title">No hay productos visibles</div>
+    <p>Si no lo encuentras por nombre, usa el codigo de barras para verificar y crear.</p>
+    <button class="btn-accion btn-ean" type="button" onclick="focusEan()">Buscar por EAN</button>
   </div>
 </div>
 
@@ -85,13 +124,23 @@
 </nav>
 
 <main class="main">
-  <div class="page-header">
-    <h1 class="page-title">{{ 'Productos del grupo 🛍️' if es_grupo else 'Mis productos 🛍️' }}</h1>
-    <p class="page-subtitle">
-      {{ 'Productos compartidos en ' ~ grupo.nombre if es_grupo else 'Gestiona y vincula los artículos extraídos de tus tiquets' }}
-    </p>
-    {% if es_grupo %}
-      <a href="/grupos" class="btn-clear-filters" style="margin-top:0.6rem; display:inline-flex;">← Volver a grupos</a>
+  <div class="page-header" style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;">
+    <div>
+      <h1 class="page-title">{{ 'Productos del grupo 🛍️' if es_grupo else 'Mis productos 🛍️' }}</h1>
+      <p class="page-subtitle">
+        {{ 'Productos compartidos en ' ~ grupo.nombre if es_grupo else 'Gestiona y vincula los artículos extraídos de tus tiquets' }}
+      </p>
+      {% if es_grupo %}
+        <a href="/grupos" class="btn-clear-filters" style="margin-top:0.6rem; display:inline-flex;">← Volver a grupos</a>
+      {% endif %}
+    </div>
+
+    {% if not es_grupo %}
+    <div style="flex-shrink: 0;">
+      <a href="/opf/wizard" class="btn-primary" style="padding: 0.6rem 1.2rem; text-decoration: none; border-radius: 8px; font-weight: 600;">
+        + Anadir a OPF
+      </a>
+    </div>
     {% endif %}
   </div>
 
@@ -336,6 +385,7 @@ async function abrirPrecios(idProducto, nombre) {
 // ── Panel de Vincular ─────────────────────────────────────────
 let currentIdCompra = null;
 let buscarTimer = null;
+let eanLookupProduct = null;
 
 function abrirVincular(id, original) {
   currentIdCompra = id;
@@ -343,9 +393,204 @@ function abrirVincular(id, original) {
   document.getElementById('vpSearchInput').value = '';
   document.getElementById('vpResults').innerHTML =
     '<p style="text-align:center; color:var(--text3); padding-top:2rem;">Empieza a escribir para buscar...</p>';
+  document.getElementById('vpNoResultsCta').classList.add('hidden');
+  setVincularModo('nombre');
+  resetEanFlow();
   document.getElementById('panelOverlay').classList.add('open');
   document.getElementById('panelVincular').classList.add('open');
   setTimeout(() => document.getElementById('vpSearchInput').focus(), 300);
+}
+
+function focusEan() {
+  setVincularModo('ean');
+}
+
+function setVincularModo(mode) {
+  const isEan = mode === 'ean';
+  const searchWrap = document.getElementById('vpSearchWrap');
+  const barcodeWrap = document.getElementById('vpBarcodeWrap');
+  const results = document.getElementById('vpResults');
+  const emptyCta = document.getElementById('vpNoResultsCta');
+
+  if (searchWrap) searchWrap.classList.toggle('hidden', isEan);
+  if (barcodeWrap) barcodeWrap.classList.toggle('hidden', !isEan);
+  if (results) results.classList.toggle('hidden', isEan);
+  if (emptyCta) emptyCta.classList.toggle('hidden', isEan);
+
+  document.querySelectorAll('.vp-toggle').forEach(btn => {
+    const btnMode = btn.getAttribute('data-mode');
+    btn.classList.toggle('active', btnMode === mode);
+  });
+
+  if (isEan) {
+    const input = document.getElementById('vpEanInput');
+    if (input) {
+      input.focus();
+      input.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+  }
+}
+
+function resetEanFlow() {
+  eanLookupProduct = null;
+  document.getElementById('vpEanInput').value = '';
+  document.getElementById('vpEanStatus').textContent = '';
+  document.getElementById('vpEanFound').classList.add('hidden');
+  document.getElementById('vpEanFound').innerHTML = '';
+  document.getElementById('vpEanForm').classList.add('hidden');
+  document.getElementById('vpEanBadgeValue').textContent = '';
+  document.getElementById('vpNombre').value = '';
+  document.getElementById('vpMarca').value = '';
+  document.getElementById('vpFoto').value = '';
+  document.getElementById('vpFileText').style.display = '';
+  document.getElementById('vpImgPreview').classList.add('hidden');
+}
+
+function setEanStatus(msg, tone) {
+  const el = document.getElementById('vpEanStatus');
+  el.textContent = msg;
+  el.className = `vp-ean-status ${tone || ''}`.trim();
+}
+
+async function buscarEAN() {
+  const raw = document.getElementById('vpEanInput').value.trim();
+  const ean = raw.replace(/\D/g, '');
+  if (ean.length < 8) {
+    setEanStatus('Introduce un codigo valido (8-14 digitos).', 'error');
+    return;
+  }
+
+  setEanStatus('Buscando en Open Products Facts...', 'loading');
+  document.getElementById('vpEanFound').classList.add('hidden');
+  document.getElementById('vpEanForm').classList.add('hidden');
+  document.getElementById('vpEanBadgeValue').textContent = ean;
+
+  try {
+    const res = await fetch(`/api/opf/lookup/${ean}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Error consultando OPF');
+
+    if (data.found) {
+      eanLookupProduct = {
+        ean,
+        nombre: data.product.product_name || '',
+        marca: data.product.brands || '',
+        image_url: data.product.image_url || ''
+      };
+
+      renderEanFound(eanLookupProduct);
+      setEanStatus('Producto encontrado. Vinculando...', 'loading');
+      await vincularEanExistente();
+      return;
+    }
+
+    eanLookupProduct = null;
+    setEanStatus('No existe en OPF. Completa los datos para crearlo.', 'info');
+    document.getElementById('vpEanForm').classList.remove('hidden');
+  } catch (e) {
+    setEanStatus(e.message || 'No se pudo consultar OPF.', 'error');
+  }
+}
+
+function renderEanFound(producto) {
+  const box = document.getElementById('vpEanFound');
+  const img = producto.image_url ? `<img src="${producto.image_url}" class="vp-img" alt="">` : `<div class="vp-img vp-img-placeholder">Sin imagen</div>`;
+  box.innerHTML = `
+    <div class="vp-item" style="cursor:default;">
+      ${img}
+      <div style="flex:1;min-width:0;">
+        <span class="vp-name">${producto.nombre || 'Desconocido'}</span>
+        <span class="vp-brand">${producto.marca || '—'}</span>
+      </div>
+    </div>
+  `;
+  box.classList.remove('hidden');
+}
+
+async function vincularEanExistente() {
+  if (!currentIdCompra || !eanLookupProduct) return;
+
+  try {
+    const importRes = await fetch('/api/opf/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(eanLookupProduct)
+    });
+    const importData = await importRes.json();
+    if (!importRes.ok) throw new Error(importData.error || 'No se pudo guardar el producto');
+
+    const linkRes = await fetch('/api/compras/vincular', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id_compra: currentIdCompra, id_producto_maestro: importData.id })
+    });
+    if (!linkRes.ok) throw new Error('Error al vincular');
+
+    location.reload();
+  } catch (e) {
+    setEanStatus(e.message || 'No se pudo vincular el producto.', 'error');
+  }
+}
+
+function previewEanImage(input) {
+  const file = input.files[0];
+  if (file) {
+    document.getElementById('vpFileText').style.display = 'none';
+    const img = document.getElementById('vpImgPreview');
+    img.src = URL.createObjectURL(file);
+    img.classList.remove('hidden');
+  }
+}
+
+async function crearYVincularEAN(e) {
+  e.preventDefault();
+  if (!currentIdCompra) return;
+
+  const ean = document.getElementById('vpEanInput').value.trim().replace(/\D/g, '');
+  const nombre = document.getElementById('vpNombre').value.trim();
+  const marca = document.getElementById('vpMarca').value.trim();
+  const foto = document.getElementById('vpFoto').files[0];
+
+  if (!ean || ean.length < 8) {
+    setEanStatus('EAN invalido.', 'error');
+    return;
+  }
+  if (!nombre || !marca) {
+    setEanStatus('Nombre y marca son obligatorios.', 'error');
+    return;
+  }
+  if (!foto) {
+    setEanStatus('La foto es obligatoria para crear en OPF.', 'error');
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append('ean', ean);
+  formData.append('nombre', nombre);
+  formData.append('marca', marca);
+  formData.append('foto', foto);
+  formData.append('status', 'ready');
+
+  setEanStatus('Creando producto en OPF...', 'loading');
+
+  try {
+    const res = await fetch('/api/opf/create', { method: 'POST', body: formData });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'No se pudo crear en OPF');
+
+    if (data.local_product_id) {
+      const linkRes = await fetch('/api/compras/vincular', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id_compra: currentIdCompra, id_producto_maestro: data.local_product_id })
+      });
+      if (!linkRes.ok) throw new Error('No se pudo vincular la compra');
+    }
+
+    location.reload();
+  } catch (e) {
+    setEanStatus(e.message || 'Error creando el producto.', 'error');
+  }
 }
 
 function buscar(q) {
@@ -363,7 +608,9 @@ async function fetchJsonArray(url) {
 
 async function _doSearch(q) {
   const resultsDiv = document.getElementById('vpResults');
+  const emptyCta = document.getElementById('vpNoResultsCta');
   resultsDiv.innerHTML = '<p style="text-align:center; padding:2rem; color:var(--text2);">🔍 Buscando...</p>';
+  if (emptyCta) emptyCta.classList.add('hidden');
   try {
     const [localResult, offResult] = await Promise.allSettled([
       fetchJsonArray(`/api/maestros/buscar?q=${encodeURIComponent(q)}`),
@@ -400,9 +647,15 @@ async function _doSearch(q) {
       } else {
         resultsDiv.innerHTML = '<p style="text-align:center; padding:2rem; color:var(--text3);">Sin resultados.</p>';
       }
+      if (emptyCta && !document.getElementById('vpSearchWrap').classList.contains('hidden')) {
+        emptyCta.classList.remove('hidden');
+      }
     }
   } catch(e) {
     resultsDiv.innerHTML = '<p style="text-align:center; color:var(--red);">Error de conexión.</p>';
+    if (emptyCta && !document.getElementById('vpSearchWrap').classList.contains('hidden')) {
+      emptyCta.classList.remove('hidden');
+    }
   }
 }
 

@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Esitiron — Anadir a Open Products Facts</title>
+  <script src="/js/theme.js"></script>
+  <link rel="stylesheet" href="/css/main.css">
+  <link rel="stylesheet" href="/css/class/opf_wizard.css">
+  <link rel="icon" type="image/png" href="/img/logo.jpg">
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="nav-links">
+    <a href="/dashboard" class="nav-link">📊 Dashboard</a>
+    <a href="/tiquets"   class="nav-link">🧾 Tiquets</a>
+    <a href="/productos" class="nav-link active">🛍️ Productos</a>
+    <a href="/grupos"    class="nav-link">👥 Grupos</a>
+  </div>
+  <div class="nav-right">
+    <a href="/productos" class="btn-cancel">✕ Cancelar</a>
+  </div>
+</nav>
+
+<main class="main wizard-main">
+  <div class="page-header text-center">
+    <h1 class="page-title">Anadir producto global 🌍</h1>
+    <p class="page-subtitle">Anade un producto desconocido a la base de datos libre de Open Products Facts.</p>
+  </div>
+
+  <div class="card wizard-card">
+
+    <!-- PASO 1: Codigo EAN -->
+    <div id="step-1" class="wizard-step active">
+      <div class="step-icon">🏷️</div>
+      <h2>Paso 1: Codigo de Barras</h2>
+      <p>Introduce o escanea el codigo de barras (EAN/UPC) del producto.</p>
+
+      <div class="form-group">
+        <input type="text" id="eanInput" class="wizard-input text-center" placeholder="Ej: 8480000123456" autofocus>
+      </div>
+
+      <div class="step-actions">
+        <button class="btn-primary w-full" onclick="lookupEAN()">Buscar en la base de datos</button>
+      </div>
+      <div id="loading-1" class="loading-spinner hidden">Buscando producto...</div>
+      <div id="error-1" class="error-msg hidden"></div>
+    </div>
+
+    <!-- PASO 2: Verificacion (El producto ya existe) -->
+    <div id="step-2" class="wizard-step hidden">
+      <div class="step-icon">👀</div>
+      <h2>Producto Encontrado</h2>
+      <p>Este codigo de barras ya existe en Open Products Facts.</p>
+
+      <div class="product-preview" id="existingProductPreview">
+        <!-- Rellenado por JS -->
+      </div>
+
+      <h3 style="margin-top: 1.5rem;">Es este el producto que estabas buscando?</h3>
+      <div class="step-actions double">
+        <button class="btn-primary" onclick="vincularExistente()">Si, guardarlo</button>
+        <button class="btn-secondary" onclick="goToStep(1)">No, el codigo esta mal</button>
+      </div>
+      <div id="error-2" class="error-msg hidden"></div>
+    </div>
+
+    <!-- PASO 3: Formulario de Creacion / Borrador -->
+    <div id="step-3" class="wizard-step hidden">
+      <div class="step-icon">📸</div>
+      <h2>Paso 2: Datos del Nuevo Producto</h2>
+      <p>No hemos encontrado el EAN <strong id="eanDisplay" class="accent"></strong>. Ayuda a la comunidad anadiendolo.</p>
+
+      <form id="newProductForm" onsubmit="submitProduct(event)">
+        <div class="form-group">
+          <label for="nombre">Nombre del Producto <span class="req">*</span></label>
+          <input type="text" id="nombre" name="nombre" class="wizard-input" placeholder="Ej: Tomate frito casero" required>
+        </div>
+
+        <div class="form-group">
+          <label for="marca">Marca <span class="req">*</span></label>
+          <input type="text" id="marca" name="marca" class="wizard-input" placeholder="Ej: Hacendado" required>
+        </div>
+
+        <div class="form-group">
+          <label>Fotografia Frontal (Opcional para Borrador)</label>
+          <div class="file-upload-wrap">
+            <input type="file" id="foto" name="foto" accept="image/jpeg, image/png, image/webp" onchange="previewImage(this)">
+            <div class="file-upload-text" id="fileText">Haz clic para subir una imagen</div>
+            <img id="imgPreview" class="img-preview hidden">
+          </div>
+        </div>
+
+        <div class="step-actions double" style="margin-top: 2rem;">
+          <button type="button" class="btn-secondary" onclick="saveDraft()">Guardar Borrador 📝</button>
+          <button type="submit" class="btn-primary" id="btnSubmit">Enviar a OPF 🚀</button>
+        </div>
+      </form>
+      <div id="loading-3" class="loading-spinner hidden">Procesando...</div>
+      <div id="error-3" class="error-msg hidden"></div>
+    </div>
+
+    <!-- PASO 4: Exito -->
+    <div id="step-4" class="wizard-step hidden">
+      <div class="step-icon" style="color: #10B981;">✅</div>
+      <h2>Completado</h2>
+      <p id="successMessage">El producto se ha enviado correctamente a Open Products Facts.</p>
+      <div class="step-actions">
+        <a href="/productos" class="btn-primary w-full">Volver a mis productos</a>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<script>
+  let currentEAN = '';
+  let existingProduct = null;
+
+  function goToStep(step) {
+    document.querySelectorAll('.wizard-step').forEach(el => el.classList.add('hidden'));
+    document.getElementById(`step-${step}`).classList.remove('hidden');
+    document.querySelectorAll('.error-msg').forEach(el => el.classList.add('hidden'));
+  }
+
+  async function lookupEAN() {
+    const ean = document.getElementById('eanInput').value.trim().replace(/\D/g, '');
+    if (!ean || ean.length < 8) {
+      showError(1, 'Por favor, introduce un codigo de barras valido.');
+      return;
+    }
+
+    currentEAN = ean;
+    document.getElementById('loading-1').classList.remove('hidden');
+    document.getElementById('error-1').classList.add('hidden');
+
+    try {
+      const res = await fetch(`/api/opf/lookup/${ean}`);
+      const data = await res.json();
+
+      document.getElementById('loading-1').classList.add('hidden');
+
+      if (data.found) {
+        existingProduct = {
+          ean,
+          nombre: data.product.product_name || '',
+          marca: data.product.brands || '',
+          image_url: data.product.image_url || ''
+        };
+        const preview = document.getElementById('existingProductPreview');
+        preview.innerHTML = `
+          ${data.product.image_url ? `<img src="${data.product.image_url}" alt="Foto">` : '<div class="no-img">Sin imagen</div>'}
+          <div class="preview-info">
+            <h4>${data.product.product_name || 'Desconocido'}</h4>
+            <p>${data.product.brands || 'Sin marca'}</p>
+          </div>
+        `;
+        goToStep(2);
+      } else {
+        existingProduct = null;
+        document.getElementById('eanDisplay').textContent = ean;
+        goToStep(3);
+      }
+    } catch (err) {
+      document.getElementById('loading-1').classList.add('hidden');
+      showError(1, 'Error conectando con el servidor. Intentalo de nuevo.');
+    }
+  }
+
+  async function vincularExistente() {
+    if (!existingProduct) {
+      showError(2, 'No hay datos del producto para guardar.');
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/opf/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(existingProduct)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'No se pudo guardar el producto.');
+
+      document.getElementById('successMessage').textContent = 'Producto guardado en tu catalogo local correctamente.';
+      goToStep(4);
+    } catch (err) {
+      showError(2, err.message);
+    }
+  }
+
+  function previewImage(input) {
+    const file = input.files[0];
+    if (file) {
+      document.getElementById('fileText').style.display = 'none';
+      const img = document.getElementById('imgPreview');
+      img.src = URL.createObjectURL(file);
+      img.classList.remove('hidden');
+    }
+  }
+
+  async function saveDraft() {
+    const formData = new FormData(document.getElementById('newProductForm'));
+    formData.append('ean', currentEAN);
+    formData.append('status', 'draft');
+
+    await sendFormData(formData, 'Borrador guardado correctamente. Podras completarlo mas tarde.');
+  }
+
+  async function submitProduct(e) {
+    e.preventDefault();
+    const foto = document.getElementById('foto').files[0];
+    if (!foto) {
+      showError(3, 'Para enviarlo a OPF es obligatorio adjuntar una fotografia.');
+      return;
+    }
+
+    const formData = new FormData(e.target);
+    formData.append('ean', currentEAN);
+    formData.append('status', 'ready');
+
+    await sendFormData(formData, 'Producto enviado con exito a Open Products Facts.');
+  }
+
+  async function sendFormData(formData, successTxt) {
+    document.getElementById('loading-3').classList.remove('hidden');
+    document.getElementById('btnSubmit').disabled = true;
+
+    try {
+      const res = await fetch('/api/opf/create', {
+        method: 'POST',
+        body: formData
+      });
+      const data = await res.json();
+
+      if (res.ok) {
+        document.getElementById('successMessage').textContent = successTxt;
+        goToStep(4);
+      } else {
+        throw new Error(data.error || 'Error al procesar la solicitud.');
+      }
+    } catch (err) {
+      showError(3, err.message);
+    } finally {
+      document.getElementById('loading-3').classList.add('hidden');
+      document.getElementById('btnSubmit').disabled = false;
+    }
+  }
+
+  function showError(step, msg) {
+    const el = document.getElementById(`error-${step}`);
+    el.textContent = msg;
+    el.classList.remove('hidden');
+  }
+</script>
+</body>
+</html>

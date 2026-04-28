@@ -11,6 +11,8 @@
 }
 .panel-overlay.open { opacity: 1; pointer-events: all; }
 
+.hidden { display: none; }
+
 /* ── Panel lateral (Vincular + Precios) ─────────────────────────────────── */
 .panel-lateral {
   position: fixed; top: 0; right: 0; bottom: 0;
@@ -55,6 +57,195 @@ html.dark .panel-lateral { background: var(--surface); }
 }
 .vp-search:focus { box-shadow: 0 0 0 4px rgba(16,185,129,0.15); }
 html.dark .vp-search { background: var(--surface); }
+
+.vp-mode-toggle {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.9rem 1.25rem 0.4rem;
+  background: var(--surface2);
+  border-bottom: 1px solid var(--border);
+}
+
+.vp-toggle {
+  flex: 1;
+  border: 1px solid var(--border);
+  background: var(--white);
+  color: var(--text2);
+  border-radius: 999px;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.vp-toggle.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+  box-shadow: 0 6px 18px rgba(16,185,129,0.2);
+}
+
+html.dark .vp-toggle {
+  background: var(--surface);
+}
+
+.vp-barcode-wrap {
+  padding: 1rem 1.25rem 0.25rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.vp-barcode-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text2);
+  margin-bottom: 0.5rem;
+}
+
+.vp-barcode-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.vp-ean-input {
+  flex: 1;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border2);
+  border-radius: 10px;
+  font-size: 0.9rem;
+  background: var(--white);
+  color: var(--text);
+  outline: none;
+  font-family: inherit;
+}
+
+html.dark .vp-ean-input { background: var(--surface); }
+
+.btn-ean {
+  white-space: nowrap;
+  padding: 0.55rem 0.8rem;
+}
+
+.vp-ean-status {
+  font-size: 0.78rem;
+  margin-top: 0.6rem;
+  color: var(--text3);
+}
+
+.vp-ean-status.error { color: var(--red); }
+.vp-ean-status.info { color: var(--text2); }
+.vp-ean-status.loading { color: var(--accent); }
+
+.vp-ean-found {
+  margin-top: 0.75rem;
+}
+
+.vp-ean-form {
+  margin-top: 0.8rem;
+}
+
+.vp-ean-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.2rem 0.6rem;
+  font-size: 0.75rem;
+  color: var(--text2);
+  margin-bottom: 0.6rem;
+}
+
+.vp-img-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text3);
+  font-size: 0.65rem;
+}
+
+.panel-lateral .vp-empty-cta {
+  margin: 0.75rem 1.25rem 1.25rem;
+  padding: 1rem 1.1rem;
+  border: 1px dashed var(--border2);
+  border-radius: 14px;
+  background: linear-gradient(135deg, var(--surface2), var(--surface));
+  text-align: center;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.06);
+}
+
+.panel-lateral .vp-empty-title {
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 0.35rem;
+  letter-spacing: -0.01em;
+}
+
+.panel-lateral .vp-empty-cta p {
+  font-size: 0.82rem;
+  color: var(--text2);
+  margin-bottom: 0.75rem;
+}
+
+.panel-lateral .vp-empty-cta .btn-accion {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.panel-lateral .vp-empty-cta .btn-accion:hover {
+  background: var(--accent-hv);
+  border-color: var(--accent-hv);
+}
+
+.wizard-input {
+  width: 100%;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--border2);
+  border-radius: 10px;
+  background: var(--white);
+  color: var(--text);
+  font-size: 0.9rem;
+  box-sizing: border-box;
+  font-family: inherit;
+}
+
+html.dark .wizard-input { background: var(--surface); }
+
+.file-upload-wrap {
+  position: relative;
+  border: 2px dashed var(--border);
+  border-radius: 12px;
+  padding: 1.4rem 1rem;
+  text-align: center;
+  background: var(--surface2);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.file-upload-wrap input[type="file"] {
+  position: absolute;
+  top: 0; left: 0; width: 100%; height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.file-upload-text {
+  color: var(--text3);
+  font-size: 0.8rem;
+}
+
+.img-preview {
+  max-width: 100%;
+  max-height: 180px;
+  border-radius: 10px;
+  margin-top: 0.5rem;
+}
+
+.req { color: var(--red); }
 
 .vp-item {
   display: flex; align-items: center; gap: 1rem;

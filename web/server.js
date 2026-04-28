@@ -24,6 +24,15 @@ const OFF_SEARCH_URL = process.env.OFF_SEARCH_URL || 'https://world.openfoodfact
 const OFF_SECONDARY_URL = process.env.OFF_SECONDARY_URL || 'https://world.openfoodfacts.net/cgi/search.pl';
 const OFF_FALLBACK_URL = process.env.OFF_FALLBACK_URL || 'http://proxy/api/openfoodfacts/cgi/search.pl';
 const OFF_TIMEOUT_MS = Number.parseInt(process.env.OFF_TIMEOUT_MS || '10000', 10);
+const OPF_BASE_URL = process.env.OPF_BASE_URL || 'https://world.openfoodfacts.org';
+const OPF_LOOKUP_PATH = process.env.OPF_LOOKUP_PATH || '/api/v2/product';
+const OPF_CREATE_PATH = process.env.OPF_CREATE_PATH || '/cgi/product_jqm2.pl';
+const OPF_IMAGE_PATH = process.env.OPF_IMAGE_PATH || '/cgi/product_image_upload.pl';
+const OPF_TIMEOUT_MS = Number.parseInt(process.env.OPF_TIMEOUT_MS || '12000', 10);
+const OPF_USER_ID = process.env.OPF_USER_ID || '';
+const OPF_PASSWORD = process.env.OPF_PASSWORD || '';
+const OPF_USER_AGENT = process.env.OPF_USER_AGENT || 'Esitiron/1.0 (https://tickets.esitiron.app)';
+const OPENFACTS_API_KEY = process.env.OPENFACTS_API_KEY || '';
 
 // --- 2. CONFIGURACIÓN DE MÉTRICAS (PROMETHEUS) ---
 const register = new promClient.Registry();
@@ -67,6 +76,8 @@ function decrypt(text) {
 // ── Directorio avatares ──────────────────────────────────────
 const AVATARS_DIR = path.join(__dirname, 'public', 'avatars');
 if (!fs.existsSync(AVATARS_DIR)) fs.mkdirSync(AVATARS_DIR, { recursive: true });
+const OPF_UPLOADS_DIR = path.join(__dirname, 'private', 'opf_uploads');
+if (!fs.existsSync(OPF_UPLOADS_DIR)) fs.mkdirSync(OPF_UPLOADS_DIR, { recursive: true });
 
 // ── BD ───────────────────────────────────────────────────────
 // ✅ CORRECTO: charset = nombre del juego de caracteres
@@ -154,6 +165,26 @@ async function initDB() {
     ) ENGINE=InnoDB
   `);
 
+  await dbPool.execute(`
+    CREATE TABLE IF NOT EXISTS opf_drafts (
+      id            INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      id_usuario    INT UNSIGNED NOT NULL,
+      ean           VARCHAR(50)  NOT NULL,
+      nombre        VARCHAR(200) NOT NULL,
+      marca         VARCHAR(100) NOT NULL,
+      foto_path     VARCHAR(255) DEFAULT NULL,
+      estado        ENUM('draft','sent','failed') NOT NULL DEFAULT 'draft',
+      opf_response  TEXT         DEFAULT NULL,
+      error_msg     VARCHAR(500) DEFAULT NULL,
+      creado_en     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      actualizado_en DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      INDEX idx_opf_usuario (id_usuario),
+      INDEX idx_opf_ean (ean),
+      FOREIGN KEY (id_usuario) REFERENCES usuarios(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB
+  `);
+
   console.log('[DB] Todas las tablas listas');
   
   // --- 3. RECARGA INICIAL DE LA MÉTRICA ---
@@ -235,6 +266,16 @@ const uploadAvatar = multer({
   fileFilter: (_req, file, cb) => {
     if (['image/jpeg','image/png','image/webp','image/gif'].includes(file.mimetype)) cb(null, true);
     else cb(new Error('Formato de avatar no permitido'));
+  },
+});
+
+const uploadOpf = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 6 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowed = ['image/jpeg','image/png','image/webp'];
+    if (allowed.includes(file.mimetype)) cb(null, true);
+    else cb(new Error('Formato de imagen no permitido'));
   },
 });
 
@@ -755,6 +796,10 @@ app.post('/tiquet/:uuid/eliminar', auth, async (req,res) => {
 });
 
 // ── PRODUCTOS ────────────────────────────────────────────────
+app.get('/opf/wizard', auth, (req, res) => {
+  res.render('opf_wizard.html', { ...navLocals(req), messages: [] });
+});
+
 app.get('/productos', auth, async (req, res) => {
   const uid = req.session.usuario.id;
   const { pais = '', supermercado = '' } = req.query;
@@ -879,6 +924,117 @@ function parseOffResults(data) {
   return mapOffProducts(data);
 }
 
+function normalizarEan(valor) {
+  return String(valor || '').replace(/\D/g, '');
+}
+
+function sanitizarTexto(valor, maxLen) {
+  return String(valor || '').trim().replace(/\s+/g, ' ').slice(0, maxLen);
+}
+
+function opfUrl(pathname) {
+  const base = OPF_BASE_URL.replace(/\/+$/, '');
+  const path = String(pathname || '').replace(/^\/+/, '');
+  return `${base}/${path}`;
+}
+
+function buildOpfHeaders() {
+  const headers = { 'User-Agent': OPF_USER_AGENT, Accept: 'application/json' };
+  if (OPENFACTS_API_KEY) headers['X-Api-Key'] = OPENFACTS_API_KEY;
+  return headers;
+}
+
+function buildOpfLookupUrl(ean) {
+  const basePath = OPF_LOOKUP_PATH.replace(/\/+$/, '');
+  return opfUrl(`${basePath}/${ean}.json`);
+}
+
+async function persistOpfFile(file) {
+  if (!file) return null;
+  const ext = path.extname(file.originalname || '').toLowerCase();
+  const allowedExt = ['.jpg', '.jpeg', '.png', '.webp'];
+  const safeExt = allowedExt.includes(ext) ? ext : (file.mimetype === 'image/png' ? '.png' : '.jpg');
+  const filename = `opf_${Date.now()}_${crypto.randomUUID()}${safeExt}`;
+  const relativePath = path.join('private', 'opf_uploads', filename);
+  const fullPath = path.join(__dirname, relativePath);
+  await fs.promises.writeFile(fullPath, file.buffer);
+  return relativePath.replace(/\\/g, '/');
+}
+
+async function enviarOpfProducto({ ean, nombre, marca }) {
+  if (!OPF_USER_ID || !OPF_PASSWORD) throw new Error('Credenciales OPF no configuradas');
+  const form = new FormData();
+  form.append('code', ean);
+  form.append('product_name', nombre);
+  form.append('brands', marca);
+  form.append('lc', 'es');
+  form.append('cc', 'es');
+  form.append('user_id', OPF_USER_ID);
+  form.append('password', OPF_PASSWORD);
+  form.append('json', '1');
+
+  const headers = { ...form.getHeaders(), ...buildOpfHeaders() };
+  const r = await axios.post(opfUrl(OPF_CREATE_PATH), form, { headers, timeout: OPF_TIMEOUT_MS });
+  return r.data;
+}
+
+async function enviarOpfImagen({ ean, file }) {
+  if (!OPF_USER_ID || !OPF_PASSWORD) throw new Error('Credenciales OPF no configuradas');
+  const form = new FormData();
+  form.append('code', ean);
+  form.append('imagefield', 'front');
+  form.append('imgupload_front', file.buffer, { filename: file.originalname, contentType: file.mimetype });
+  form.append('user_id', OPF_USER_ID);
+  form.append('password', OPF_PASSWORD);
+  form.append('json', '1');
+
+  const headers = { ...form.getHeaders(), ...buildOpfHeaders() };
+  const r = await axios.post(opfUrl(OPF_IMAGE_PATH), form, { headers, timeout: OPF_TIMEOUT_MS });
+  return r.data;
+}
+
+async function upsertProductoMaestroFromOpf({ ean, nombre, marca, foto_url }) {
+  const eanClean = normalizarEan(ean);
+  const nombreClean = sanitizarTexto(nombre, 200).toUpperCase();
+  const marcaClean = sanitizarTexto(marca, 100).toUpperCase() || 'GENERICA';
+  const fotoClean = foto_url ? String(foto_url).slice(0, 500) : null;
+
+  if (!eanClean || !nombreClean) return null;
+
+  const [[existing]] = await dbPool.execute(
+    'SELECT id, nombre, marca, foto_url FROM productos_maestros WHERE codigo_barras = ? LIMIT 1',
+    [eanClean]
+  );
+
+  if (existing) {
+    const updates = [];
+    const params = [];
+    if (!existing.nombre && nombreClean) {
+      updates.push('nombre = ?');
+      params.push(nombreClean);
+    }
+    if (!existing.marca && marcaClean) {
+      updates.push('marca = ?');
+      params.push(marcaClean);
+    }
+    if (!existing.foto_url && fotoClean) {
+      updates.push('foto_url = ?');
+      params.push(fotoClean);
+    }
+    if (updates.length > 0) {
+      params.push(existing.id);
+      await dbPool.execute(`UPDATE productos_maestros SET ${updates.join(', ')} WHERE id = ?`, params);
+    }
+    return existing.id;
+  }
+
+  const [ins] = await dbPool.execute(
+    'INSERT INTO productos_maestros (nombre, marca, categoria, foto_url, codigo_barras) VALUES (?,?,?,?,?)',
+    [nombreClean, marcaClean, 'Alimentacion', fotoClean, eanClean]
+  );
+  return ins.insertId;
+}
+
 app.get('/api/proxy/off', auth, async (req, res) => {
   const timeoutMs = Number.isFinite(OFF_TIMEOUT_MS) ? OFF_TIMEOUT_MS : 10000;
   try {
@@ -909,6 +1065,121 @@ app.get('/api/proxy/off', auth, async (req, res) => {
     console.error(`[OFF] Fallback agotado: ${reason}`);
     return res.json([]);
   }
+});
+
+// ── OPF (Open Products Facts) ───────────────────────────────
+app.post('/api/opf/import', auth, async (req, res) => {
+  const ean = normalizarEan(req.body.ean);
+  const nombre = sanitizarTexto(req.body.nombre, 200);
+  const marca = sanitizarTexto(req.body.marca, 100);
+  const foto_url = req.body.image_url || req.body.foto_url || '';
+
+  if (!/^\d{8,14}$/.test(ean)) return res.status(400).json({ error: 'EAN inválido' });
+  if (!nombre) return res.status(400).json({ error: 'Nombre obligatorio' });
+
+  try {
+    const id = await upsertProductoMaestroFromOpf({ ean, nombre, marca, foto_url });
+    return res.json({ success: true, id });
+  } catch (e) {
+    console.error('[OPF] Import local error:', e.message);
+    return res.status(500).json({ error: 'Error guardando producto' });
+  }
+});
+
+app.get('/api/opf/lookup/:ean', auth, async (req, res) => {
+  const ean = normalizarEan(req.params.ean);
+  if (!/^\d{8,14}$/.test(ean)) return res.status(400).json({ error: 'EAN inválido' });
+
+  try {
+    const r = await axios.get(buildOpfLookupUrl(ean), { headers: buildOpfHeaders(), timeout: OPF_TIMEOUT_MS });
+    const data = r.data || {};
+    const product = data.product || null;
+    const found = data.status === 1 || data.status === '1' || !!product;
+
+    if (!found) return res.json({ found: false });
+
+    res.json({
+      found: true,
+      product: {
+        product_name: product.product_name || product.product_name_es || '',
+        brands: product.brands || '',
+        image_url: product.image_url || product.image_front_url || '',
+      },
+    });
+  } catch (e) {
+    const reason = e.response?.status || e.code || e.message;
+    console.warn(`[OPF] Lookup falló (${reason})`);
+    res.status(502).json({ error: 'No se pudo consultar OPF' });
+  }
+});
+
+app.post('/api/opf/create', auth, (req, res) => {
+  uploadOpf.single('foto')(req, res, async (err) => {
+    if (err) return res.status(400).json({ error: err.message || 'Error de archivo' });
+
+    const status = String(req.body.status || 'draft').toLowerCase();
+    const ean = normalizarEan(req.body.ean);
+    const nombre = sanitizarTexto(req.body.nombre, 200);
+    const marca = sanitizarTexto(req.body.marca, 100);
+    const file = req.file || null;
+
+    if (!/^\d{8,14}$/.test(ean)) return res.status(400).json({ error: 'EAN inválido' });
+    if (!nombre || !marca) return res.status(400).json({ error: 'Nombre y marca son obligatorios' });
+    if (status !== 'draft' && status !== 'ready') return res.status(400).json({ error: 'Estado inválido' });
+    if (status === 'ready' && !file) return res.status(400).json({ error: 'Foto obligatoria para enviar' });
+
+    let estado = status === 'ready' ? 'sent' : 'draft';
+    let opfResponse = null;
+    let errorMsg = null;
+    let fotoPath = null;
+    let localProductId = null;
+
+    try {
+      if (status === 'ready') {
+        const productoRes = await enviarOpfProducto({ ean, nombre, marca });
+        let imagenRes = null;
+        if (file) imagenRes = await enviarOpfImagen({ ean, file });
+        opfResponse = { producto: productoRes, imagen: imagenRes };
+      }
+    } catch (e) {
+      estado = 'failed';
+      errorMsg = e.message || 'Error enviando a OPF';
+      if (file) fotoPath = await persistOpfFile(file);
+    }
+
+    if (status === 'draft' && file) fotoPath = await persistOpfFile(file);
+
+    try {
+      localProductId = await upsertProductoMaestroFromOpf({ ean, nombre, marca, foto_url: null });
+    } catch (e) {
+      console.warn('[OPF] Import local fallido:', e.message);
+    }
+
+    const [result] = await dbPool.execute(
+      `INSERT INTO opf_drafts (id_usuario, ean, nombre, marca, foto_path, estado, opf_response, error_msg)
+       VALUES (?,?,?,?,?,?,?,?)`,
+      [
+        req.session.usuario.id,
+        ean,
+        nombre,
+        marca,
+        fotoPath,
+        estado,
+        opfResponse ? JSON.stringify(opfResponse).slice(0, 4000) : null,
+        errorMsg ? errorMsg.slice(0, 500) : null,
+      ]
+    );
+
+    if (estado === 'failed') {
+      return res.status(502).json({
+        error: errorMsg || 'Error enviando a OPF',
+        draft_id: result.insertId,
+        local_product_id: localProductId,
+      });
+    }
+
+    res.json({ success: true, draft_id: result.insertId, sent: estado === 'sent', local_product_id: localProductId });
+  });
 });
 
 // --- 7. VINCULACIÓN INTELIGENTE: Mueve compras, borra basura y añade redirecciones ---
