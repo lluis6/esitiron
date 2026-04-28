@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Esítiron — Mi perfil</title>
+  <script src="/js/theme.js"></script>
+  <link rel="stylesheet" href="/css/main.css">
+  <link rel="stylesheet" href="/css/class/perfil.css">
+  <link rel="icon" type="image/png" href="/img/logo.jpg">
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="nav-links">
+    <a href="/dashboard" class="nav-link">📊 Dashboard</a>
+    <a href="/tiquets"   class="nav-link">🧾 Tiquets</a>
+    <a href="/productos" class="nav-link active">🛍️  Productos</a>
+    <a href="/grupos"    class="nav-link">👥 Grupos</a>
+  </div>
+  <div class="nav-right">
+    <div class="user-menu-wrap" id="userMenuWrap">
+      <div class="nav-user" id="userTrigger" onclick="toggleMenu()">
+        {% if avatar_url %}
+          <img src="{{ avatar_url }}" class="avatar" style="object-fit:cover;" alt="avatar">
+        {% else %}
+          <div class="avatar">{{ usuario[0] | upper }}</div>
+        {% endif %}
+        <span class="nav-username">{{ usuario }}</span>
+      </div>
+      <div class="user-dropdown" id="userDropdown">
+        <div class="ud-header"><div class="ud-name">{{ usuario }}</div></div>
+        <a href="/perfil" class="ud-item" style="color:var(--accent);font-weight:700;">👤 Mi perfil</a>
+        <div class="ud-divider"></div>
+        <a href="/logout" class="ud-item danger">⏻ Cerrar sesión</a>
+      </div>
+    </div>
+    <button class="theme-toggle" id="theme-toggle" title="Cambiar tema">
+      <span id="icon-sun">☀️</span>
+      <span id="icon-moon" style="display:none">🌙</span>
+    </button>
+  </div>
+</nav>
+
+<main class="main">
+  <a href="/dashboard" class="btn-back">← Volver</a>
+  <div class="page-header">
+    <h1 class="page-title">Mi perfil 👤</h1>
+    <p class="page-subtitle">Gestiona tu información personal y seguridad</p>
+  </div>
+
+  {% if messages and messages.length > 0 %}
+  <div class="flashes" style="margin-bottom:1.25rem;">
+    {% for msg in messages %}
+    <div class="flash {{ msg[0] }}">{{ msg[1] }}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <form method="POST" action="/perfil">
+    <div class="perfil-grid">
+
+      <div class="section-card">
+        <div class="section-title">👤 Información personal</div>
+        <div style="text-align:center;margin-bottom:1.5rem;">
+
+	  <input type="file" id="avatarInput" accept="image/jpeg,image/png,image/webp,image/gif" style="display: none;">
+          <div class="avatar-wrap" onclick="document.getElementById('avatarInput').click()" title="Cambiar foto">
+            {% if avatar_url %}
+              <img id="avatarPreview" src="{{ avatar_url }}" class="avatar-big-img" alt="avatar">
+            {% else %}
+              <div id="avatarPreview" class="avatar-big">{{ usuario[0] | upper }}</div>
+            {% endif %}
+            <div class="avatar-overlay">📷<br>Cambiar</div>
+          </div>
+          <div id="uploadStatus" class="upload-status"></div>
+
+          <div style="font-weight:700;font-size:1rem;margin-top:0.5rem;">{{ usuario }}</div>
+          <div style="font-size:0.82rem;color:var(--text2);margin-top:0.2rem;">{{ email }}</div>
+        </div>
+
+        <div class="form-row">
+          <label>Nuevo nombre de usuario</label>
+          <input type="text" name="nuevo_username" placeholder="{{ usuario }}" minlength="3">
+          <span class="hint">Mínimo 3 caracteres. Deja vacío para no cambiar.</span>
+        </div>
+        <div class="form-row">
+          <label>Nuevo email</label>
+          <input type="email" name="nuevo_email" placeholder="{{ email or 'tu@email.com' }}">
+          <span class="hint">Deja vacío para no cambiar.</span>
+        </div>
+      </div>
+
+      <div class="section-card">
+        <div class="section-title">🔒 Cambiar contraseña</div>
+        <div class="form-row">
+          <label>Contraseña actual</label>
+          <input type="password" name="password_actual" placeholder="••••••••">
+        </div>
+        <div class="form-row">
+          <label>Nueva contraseña</label>
+          <input type="password" name="nueva_password" placeholder="••••••••" minlength="8">
+          <span class="hint">Mínimo 8 caracteres.</span>
+        </div>
+        <p style="font-size:0.8rem;color:var(--text3);margin-top:0.5rem;">
+          Rellena ambos campos solo si quieres cambiar la contraseña.
+        </p>
+      </div>
+
+    </div>
+
+    <div style="margin-top:1.25rem;display:flex;justify-content:flex-end;">
+      <button type="submit" class="btn btn-primary" style="background:var(--accent); color:#fff; border:none; padding:.65rem 1.2rem; border-radius:var(--radius-sm); font-size:.9rem; font-weight:600; cursor:pointer;">Guardar cambios →</button>
+    </div>
+  </form>
+
+  <div class="section-card" style="margin-top:1.25rem;">
+    <div class="section-title">🔐 Autenticación en dos pasos (2FA)</div>
+    {% if totp_enabled %}
+      <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;margin-bottom:1.25rem;">
+        <span class="totp-badge-on">✅ Activado</span>
+        <span style="font-size:.85rem;color:var(--text2);">Tu cuenta está protegida con un código TOTP adicional al iniciar sesión.</span>
+      </div>
+      <form method="POST" action="/perfil/2fa/disable" style="display:flex;gap:.75rem;align-items:flex-end;flex-wrap:wrap;">
+        <div class="form-row" style="margin:0;flex:1;min-width:200px;">
+          <label>Confirma tu contraseña para desactivar</label>
+          <input type="password" name="password" required placeholder="••••••••">
+        </div>
+        <button type="submit" class="btn-danger">Desactivar 2FA</button>
+      </form>
+    {% else %}
+      <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;margin-bottom:1.25rem;">
+        <span class="totp-badge-off">⚠️ No activado</span>
+        <span style="font-size:.85rem;color:var(--text2);">Tu cuenta solo está protegida por contraseña.</span>
+      </div>
+      <a href="/perfil/2fa/setup" class="btn-2fa">Activar 2FA →</a>
+    {% endif %}
+  </div>
+
+<div class="section-card" style="margin-top:1.25rem;">
+    <div class="section-title">⚙️ Ajustes avanzados</div>
+    <p style="font-size:0.85rem; color:var(--text2); margin-bottom: 1.25rem;">
+      Si eliminas tu cuenta, perderás permanentemente tu acceso y todo tu historial de tiquets. Esta acción no se puede deshacer.
+    </p>
+    
+    <form method="POST" action="/perfil/eliminar_cuenta" style="display:flex;gap:.75rem;align-items:flex-end;flex-wrap:wrap;" onsubmit="return confirm('¿Estás seguro de que quieres borrar tu cuenta de forma permanente?');">
+      <div class="form-row" style="margin:0;flex:1;min-width:200px;">
+        <label>Confirma tu contraseña para eliminar cuenta</label>
+        <input type="password" name="password_borrado" required placeholder="••••••••">
+      </div>
+      <button type="submit" style="background: transparent; color: var(--red, #ef4444); border: 1px solid var(--red, #ef4444); padding: .65rem 1.2rem; border-radius: var(--radius-sm); font-size: .9rem; font-weight: 600; cursor: pointer; transition: all 0.2s ease;" onmouseover="this.style.background='var(--red-lt, #fee2e2)'" onmouseout="this.style.background='transparent'">
+        Eliminar cuenta
+      </button>
+    </form>
+  </div>
+</main>
+
+<script>
+// Menú dropdown
+function toggleMenu() { document.getElementById('userDropdown').classList.toggle('open'); }
+document.addEventListener('click', e => {
+  const w = document.getElementById('userMenuWrap');
+  if (w && !w.contains(e.target)) document.getElementById('userDropdown').classList.remove('open');
+});
+
+// REQ 3: lógica de subida de avatar
+const avatarInput  = document.getElementById('avatarInput');
+const uploadStatus = document.getElementById('uploadStatus');
+
+avatarInput.addEventListener('change', async function () {
+  const file = this.files[0];
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) { showStatus('error', '❌ Máximo 5 MB'); return; }
+
+  // Vista previa inmediata
+  const reader = new FileReader();
+  reader.onload = e => reemplazarAvatar(e.target.result);
+  reader.readAsDataURL(file);
+
+  showStatus('uploading', '⏳ Subiendo...');
+  try {
+    const fd = new FormData();
+    fd.append('avatar', file);
+    const res  = await fetch('/perfil/avatar', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (data.success) showStatus('success', '✓ Foto actualizada');
+    else              showStatus('error', '❌ ' + (data.error || 'Error'));
+  } catch { showStatus('error', '❌ Error de red'); }
+});
+
+function reemplazarAvatar(src) {
+  const wrap    = document.querySelector('.avatar-wrap');
+  const preview = document.getElementById('avatarPreview');
+  if (preview.tagName === 'IMG') {
+    preview.src = src;
+  } else {
+    const img = document.createElement('img');
+    img.id = 'avatarPreview'; img.src = src;
+    img.className = 'avatar-big-img'; img.alt = 'avatar';
+    wrap.replaceChild(img, preview);
+  }
+  // Actualizar el mini-avatar del nav
+  const navAv = document.querySelector('.navbar .avatar, .navbar img.avatar');
+  if (navAv) {
+    if (navAv.tagName === 'IMG') { navAv.src = src; }
+    else {
+      const ni = document.createElement('img');
+      ni.src = src; ni.className = 'avatar'; ni.style.objectFit = 'cover'; ni.alt = 'avatar';
+      navAv.replaceWith(ni);
+    }
+  }
+}
+
+function showStatus(type, msg) {
+  uploadStatus.className = 'upload-status ' + type;
+  uploadStatus.textContent = msg;
+  if (type !== 'uploading') setTimeout(() => { uploadStatus.className = 'upload-status'; }, 4000);
+}
+</script>
+</body>
+</html>

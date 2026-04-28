@@ -1,0 +1,123 @@
+/* ==========================================================================
+   ESÍTIRON — tiquet_preview.css
+   ========================================================================== */
+
+/* ── Banner de error ────────────────────────────────────────────────────── */
+.banner-error {
+  display: flex; align-items: flex-start; gap: 1rem;
+  background: #fef2f2; border: 1.5px solid #fecaca;
+  border-radius: var(--radius); padding: 1.25rem 1.5rem; margin-bottom: 1.5rem;
+}
+html.dark .banner-error {
+  background: rgba(220,38,38,0.1);
+  border-color: rgba(248,113,113,0.3);
+}
+.banner-error-icon  { font-size: 1.75rem; flex-shrink: 0; }
+.banner-error-title { font-weight: 700; color: #dc2626; font-size: 1rem; margin-bottom: 0.3rem; }
+.banner-error-text  { font-size: 0.875rem; color: #991b1b; line-height: 1.5; }
+html.dark .banner-error-title { color: #f87171; }
+html.dark .banner-error-text  { color: #fca5a5; }
+
+/* Barra de auto-descarte */
+.auto-discard-bar  { height: 3px; background: var(--border); border-radius: 2px; margin-top: 0.75rem; overflow: hidden; }
+.auto-discard-fill { height: 100%; background: #dc2626; border-radius: 2px; width: 100%; transition: width linear; }
+.auto-discard-text { font-size: 0.75rem; color: #dc2626; margin-top: 0.4rem; font-weight: 500; }
+html.dark .auto-discard-text { color: #f87171; }
+
+/* ── Barra de modo (lectura / edición) ──────────────────────────────────── */
+.mode-toggle-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.75rem;
+}
+.mode-label { font-size: 0.82rem; font-weight: 600; color: var(--text2); }
+.mode-badge {
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  padding: 0.25rem 0.75rem; border-radius: 20px;
+  font-size: 0.75rem; font-weight: 700; margin-left: 0.5rem;
+}
+.mode-badge.read { background: var(--surface2); color: var(--text2); border: 1px solid var(--border); }
+.mode-badge.edit { background: var(--accent-lt); color: var(--accent); border: 1px solid var(--accent-mid); }
+
+.btn-toggle-edit {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  padding: 0.5rem 1.1rem; border-radius: var(--radius-sm);
+  font-size: 0.875rem; font-weight: 700; cursor: pointer;
+  border: 1.5px solid var(--border2); background: var(--surface2); color: var(--text2);
+  font-family: inherit; transition: all 0.2s;
+}
+.btn-toggle-edit:hover  { border-color: var(--accent); background: var(--accent-lt); color: var(--accent); }
+.btn-toggle-edit.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+/* ── Grid de cabecera del tiquet ────────────────────────────────────────── */
+.header-edit-grid {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 1rem; padding: 1.25rem;
+}
+@media (max-width: 600px) { .header-edit-grid { grid-template-columns: 1fr; } }
+
+.header-field-label {
+  font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+  color: var(--text3); margin-bottom: 0.35rem; letter-spacing: 0.06em;
+}
+.field-static { font-size: 0.95rem; font-weight: 600; color: var(--text); padding: 0.45rem 0; }
+
+/* ── Inputs de edición ──────────────────────────────────────────────────── */
+.header-edit-input,
+.edit-input {
+  width: 100%; padding: 0.55rem 0.75rem;
+  border: 1px solid var(--border2); border-radius: var(--radius-sm);
+  font-size: 0.875rem; background: var(--surface); color: var(--text);
+  font-family: inherit; outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.header-edit-input:focus,
+.edit-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(16,185,129,0.1); }
+
+.edit-input.input-cant { width: 62px; text-align: right; }
+.edit-input.input-num  { width: 80px;  text-align: right; }
+
+.input-subtotal {
+  width: 80px; text-align: right;
+  border: 1px solid var(--border); background: var(--surface2);
+  color: var(--text2); border-radius: var(--radius-sm); outline: none; padding: 0.45rem 0.6rem;
+}
+
+/* ── Filas de descuento ─────────────────────────────────────────────────── */
+tr.fila-descuento td { background: rgba(239,68,68,0.04); }
+.descuento-label {
+  display: inline-flex; align-items: center; gap: 0.3rem;
+  font-size: 0.78rem; font-weight: 700; color: var(--red);
+  background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.25);
+  border-radius: 20px; padding: 0.1rem 0.5rem;
+}
+
+/* ── Botones de tabla ───────────────────────────────────────────────────── */
+.btn-del-row { background: none; border: none; cursor: pointer; color: var(--text3); font-size: 0.9rem; padding: 0.2rem 0.4rem; border-radius: 4px; transition: color 0.15s; }
+.btn-del-row:hover { color: var(--red); }
+.btn-add-row {
+  display: none; align-items: center; gap: 0.4rem;
+  margin: 0.75rem 1.25rem; padding: 0.4rem 0.85rem;
+  border: 1.5px dashed var(--border2); border-radius: var(--radius-sm);
+  background: none; color: var(--text2); cursor: pointer;
+  font-family: inherit; font-size: 0.85rem; transition: all 0.15s;
+}
+.btn-add-row:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ── Visibilidad columnas (modo lectura / edición) ──────────────────────── */
+.col-actions,
+.cell-editable { display: none !important; }
+
+body.edit-mode .col-actions   { display: table-cell !important; }
+body.edit-mode .cell-editable { display: table-cell !important; }
+body.edit-mode .cell-static   { display: none    !important; }
+body.edit-mode .btn-add-row   { display: inline-flex; }
+
+    .input-blocked {
+      opacity: 0.6;
+      cursor: not-allowed;
+      background-color: rgba(0,0,0,0.05) !important;
+    }
+    .texto-rojo {
+      color: #ff4444 !important;
+      font-weight: 600;
+    }

@@ -1,0 +1,1239 @@
+'use strict';
+
+const express    = require('express');
+const nunjucks   = require('nunjucks');
+const multer     = require('multer');
+const axios      = require('axios');
+const FormData   = require('form-data');
+const path       = require('path');
+const fs         = require('fs');
+const bcryptjs   = require('bcryptjs');
+const mysql      = require('mysql2/promise');
+const session    = require('express-session');
+const crypto     = require('crypto');
+const speakeasy  = require('speakeasy');
+const QRCode     = require('qrcode');
+
+// --- 1. IMPORTAR LIBRERÍA DE PROMETHEUS ---
+const promClient = require('prom-client');
+
+const app  = express();
+const PORT = process.env.PORT || 3000;
+const OCR_URL = `http://${process.env.OCR_HOST || 'ocr'}:8000/analizar`;
+const OFF_SEARCH_URL = process.env.OFF_SEARCH_URL || 'https://world.openfoodfacts.org/cgi/search.pl';
+const OFF_SECONDARY_URL = process.env.OFF_SECONDARY_URL || 'https://world.openfoodfacts.net/cgi/search.pl';
+const OFF_FALLBACK_URL = process.env.OFF_FALLBACK_URL || 'http://proxy/api/openfoodfacts/cgi/search.pl';
+const OFF_TIMEOUT_MS = Number.parseInt(process.env.OFF_TIMEOUT_MS || '10000', 10);
+
+// --- 2. CONFIGURACIÓN DE MÉTRICAS (PROMETHEUS) ---
+const register = new promClient.Registry();
+promClient.collectDefaultMetrics({ register });
+
+const ticketsSubidosCounter = new promClient.Counter({
+  name: 'tickets_subidos_total',
+  help: 'Número total de tiquets guardados y confirmados por los usuarios'
+});
+register.registerMetric(ticketsSubidosCounter);
+
+
+// ── CIFRADO AES-256-GCM ──────────────────────────────────────
+const SESSION_SECRET = process.env.SESSION_SECRET || 'cambia_esto';
+const ENCRYPTION_KEY = crypto.scryptSync(SESSION_SECRET, 'salt', 32);
+const IV_LENGTH = 16;
+
+function encrypt(text) {
+  const iv = crypto.randomBytes(IV_LENGTH);
+  const cipher = crypto.createCipheriv('aes-256-gcm', ENCRYPTION_KEY, iv);
+  let encrypted = cipher.update(text, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  const authTag = cipher.getAuthTag().toString('hex');
+  return `${iv.toString('hex')}:${encrypted}:${authTag}`;
+}
+
+function decrypt(text) {
+  if (!text) return null;
+  const parts = text.split(':');
+  if (parts.length !== 3) return text;
+  const iv = Buffer.from(parts[0], 'hex');
+  const encryptedText = Buffer.from(parts[1], 'hex');
+  const authTag = Buffer.from(parts[2], 'hex');
+  const decipher = crypto.createDecipheriv('aes-256-gcm', ENCRYPTION_KEY, iv);
+  decipher.setAuthTag(authTag);
+  let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
+  decrypted += decipher.final('utf8');
+  return decrypted;
+}
+
+// ── Directorio avatares ──────────────────────────────────────
+const AVATARS_DIR = path.join(__dirname, 'public', 'avatars');
+if (!fs.existsSync(AVATARS_DIR)) fs.mkdirSync(AVATARS_DIR, { recursive: true });
+
+// ── BD ───────────────────────────────────────────────────────
+// ✅ CORRECTO: charset = nombre del juego de caracteres
+const dbPool = mysql.createPool({
+  host:               process.env.DB_HOST     || 'db',
+  user:               process.env.DB_USER     || 'user_seguro',
+  password:           process.env.DB_PASSWORD || 'password',
+  database:           process.env.DB_NAME     || 'tiquets_db',
+  charset:            'utf8mb4',
+  waitForConnections: true,
+  connectionLimit:    10,
+  timezone:           '+00:00',
+});
+
+// ✅ CORRECTO: SET NAMES también especifica el collation
+if (dbPool.pool && typeof dbPool.pool.on === 'function') {
+  dbPool.pool.on('connection', (connection) => {
+    connection.query("SET NAMES 'utf8mb4' COLLATE 'utf8mb4_unicode_ci'", (err) => {
+      if (err) console.error('[DB] SET NAMES error:', err);
+    });
+  });
+}
+
+let ID_PRODUCTO_DESCUENTO = null;
+
+async function initDB() {
+  const[rows] = await dbPool.execute("SELECT id FROM productos_maestros WHERE nombre = 'Descuento' LIMIT 1");
+  if (rows.length > 0) {
+    ID_PRODUCTO_DESCUENTO = rows[0].id;
+  } else {
+    const [r] = await dbPool.execute("INSERT INTO productos_maestros (nombre, marca, categoria) VALUES ('Descuento','Sistema','Descuento')");
+    ID_PRODUCTO_DESCUENTO = r.insertId;
+  }
+  console.log(`[DB] ID_PRODUCTO_DESCUENTO=${ID_PRODUCTO_DESCUENTO}`);
+
+  await dbPool.execute(`ALTER TABLE tiquets ADD COLUMN IF NOT EXISTS uuid VARCHAR(36) UNIQUE DEFAULT NULL`).catch(() => {});
+  await dbPool.execute(`UPDATE tiquets SET uuid = UUID() WHERE uuid IS NULL`).catch(() => {});
+  await dbPool.execute(`ALTER TABLE compras ADD COLUMN IF NOT EXISTS nombre_original VARCHAR(500) DEFAULT NULL`).catch(() => {});
+  await dbPool.execute(`ALTER TABLE compras ADD COLUMN IF NOT EXISTS curado TINYINT(1) NOT NULL DEFAULT 0`).catch(() => {});
+  await dbPool.execute(`ALTER TABLE productos_maestros ADD COLUMN IF NOT EXISTS foto_url VARCHAR(500) DEFAULT NULL`).catch(() => {});
+  await dbPool.execute(`ALTER TABLE productos_maestros ADD COLUMN IF NOT EXISTS codigo_barras VARCHAR(50) DEFAULT NULL`).catch(() => {});
+
+  await dbPool.execute(`
+    CREATE TABLE IF NOT EXISTS diccionario_productos (
+      id                  INT UNSIGNED    NOT NULL AUTO_INCREMENT,
+      nombre_en_tiquet    VARCHAR(500)    NOT NULL,
+      id_producto_maestro INT UNSIGNED    NOT NULL,
+      usos                INT             NOT NULL DEFAULT 1,
+      creado_en           DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      actualizado_en      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uk_nombre (nombre_en_tiquet(191)),
+      INDEX idx_producto (id_producto_maestro),
+      FOREIGN KEY (id_producto_maestro) REFERENCES productos_maestros(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB
+  `);
+
+  await dbPool.execute(`
+    CREATE TABLE IF NOT EXISTS verificaciones_barcode (
+      id              INT UNSIGNED    NOT NULL AUTO_INCREMENT,
+      id_producto     INT UNSIGNED    NOT NULL,
+      codigo_barras   VARCHAR(50)     NOT NULL,
+      votos_si        INT             NOT NULL DEFAULT 0,
+      votos_no        INT             NOT NULL DEFAULT 0,
+      estado          ENUM('pendiente','verificado','rechazado') NOT NULL DEFAULT 'pendiente',
+      creado_en       DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uk_prod_barcode (id_producto, codigo_barras),
+      FOREIGN KEY (id_producto) REFERENCES productos_maestros(id) ON DELETE CASCADE,
+      INDEX idx_estado (estado)
+    ) ENGINE=InnoDB
+  `);
+
+  await dbPool.execute(`
+    CREATE TABLE IF NOT EXISTS votos_usuario (
+      id              INT UNSIGNED    NOT NULL AUTO_INCREMENT,
+      id_usuario      INT UNSIGNED    NOT NULL,
+      id_verificacion INT UNSIGNED    NOT NULL,
+      voto            ENUM('si','no') NOT NULL,
+      votado_en       DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uk_usuario_verif (id_usuario, id_verificacion),
+      FOREIGN KEY (id_usuario)      REFERENCES usuarios(id)               ON DELETE CASCADE,
+      FOREIGN KEY (id_verificacion) REFERENCES verificaciones_barcode(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB
+  `);
+
+  console.log('[DB] Todas las tablas listas');
+  
+  // --- 3. RECARGA INICIAL DE LA MÉTRICA ---
+  try {
+    const [[result]] = await dbPool.execute('SELECT COUNT(id) AS total FROM tiquets');
+    if (result && result.total > 0) {
+      ticketsSubidosCounter.inc(result.total);
+      console.log(`[Métricas] Sincronizados ${result.total} tiquets históricos a Prometheus.`);
+    }
+  } catch (e) {
+    console.error('[Métricas] Error contando tiquets iniciales:', e);
+  }
+}
+
+// ── HELPERS ──────────────────────────────────────────────────
+const TIENDAS_MAP = {
+  'MERCADONA':'Mercadona','CONSUM':'Consum','LIDL':'Lidl','ALDI':'Aldi',
+  'CARREFOUR':'Carrefour','ALCAMPO':'Alcampo','DIA':'Dia','CAPRABO':'Caprabo',
+  'BONPREU':'Bonpreu','EROSKI':'Eroski','SPAR':'Spar',
+};
+function normalizarTienda(nombre) {
+  if (!nombre) return 'Desconocido';
+  const up = nombre.toUpperCase();
+  for (const [k, v] of Object.entries(TIENDAS_MAP)) if (up.includes(k)) return v;
+  return nombre.toLowerCase().replace(/\b\w/g, c => c.toUpperCase()).trim();
+}
+
+function parsearFechaTicket(fechaStr) {
+  if (!fechaStr) return null;
+  const s = String(fechaStr).trim();
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/);
+  if (m) return new Date(parseInt(m[1]), parseInt(m[2])-1, parseInt(m[3]), parseInt(m[4]), parseInt(m[5]));
+  m = s.match(/^(\d{2})[./](\d{2})[./](\d{4})\s+(\d{2}):(\d{2})/);
+  if (m) return new Date(parseInt(m[3]), parseInt(m[2])-1, parseInt(m[1]), parseInt(m[4]), parseInt(m[5]));
+  m = s.match(/^(\d{2})[./](\d{2})[./](\d{4})/);
+  if (m) return new Date(parseInt(m[3]), parseInt(m[2])-1, parseInt(m[1]));
+  return null;
+}
+
+function nowMadrid() { return new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Madrid' })); }
+
+async function verificarConsenso(conn, idVerificacion) {
+  const [[verif]] = await conn.execute('SELECT * FROM verificaciones_barcode WHERE id = ?',[idVerificacion]);
+  if (!verif) return;
+  const total = verif.votos_si + verif.votos_no;
+  if (total < 3) return;
+  const ratio = verif.votos_si / total;
+  if (ratio >= 0.8) {
+    await conn.execute("UPDATE verificaciones_barcode SET estado = 'verificado' WHERE id = ?",[idVerificacion]);
+    await conn.execute('UPDATE productos_maestros SET codigo_barras = ? WHERE id = ?',[verif.codigo_barras, verif.id_producto]);
+    console.log(`[Consenso] Verificación ${idVerificacion} APROBADA`);
+  } else if (ratio < 0.3) {
+    await conn.execute("UPDATE verificaciones_barcode SET estado = 'rechazado' WHERE id = ?",[idVerificacion]);
+    await conn.execute('UPDATE productos_maestros SET codigo_barras = NULL WHERE id = ? AND codigo_barras = ?',[verif.id_producto, verif.codigo_barras]);
+    console.log(`[Consenso] Verificación ${idVerificacion} RECHAZADA`);
+  }
+}
+
+// ── MULTER ───────────────────────────────────────────────────
+const uploadTiquet = multer({
+  storage: multer.memoryStorage(),
+  limits:  { fileSize: 15 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ALLOWED =['image/jpeg','image/png','image/webp','image/gif','application/pdf'];
+    if (ALLOWED.includes(file.mimetype)) cb(null, true);
+    else cb(new Error('Formato no permitido.'));
+  },
+});
+
+const uploadAvatar = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, AVATARS_DIR),
+    filename:    (req, _file, cb) => {
+      const ext = path.extname(_file.originalname).toLowerCase() || '.jpg';
+      cb(null, `avatar_${req.session.usuario.id}_${Date.now()}${ext}`);
+    },
+  }),
+  limits:     { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (['image/jpeg','image/png','image/webp','image/gif'].includes(file.mimetype)) cb(null, true);
+    else cb(new Error('Formato de avatar no permitido'));
+  },
+});
+
+const PUBLIC_DIR = path.join(__dirname, 'public');
+const CLASS_CSS_DIR = path.join(PUBLIC_DIR, 'css', 'class');
+const LEGACY_CLASS_DIR = path.join(PUBLIC_DIR, 'class');
+
+app.use('/css/class', express.static(CLASS_CSS_DIR));
+app.use('/css/class', express.static(LEGACY_CLASS_DIR));
+app.use('/class', express.static(CLASS_CSS_DIR));
+app.use('/class', express.static(LEGACY_CLASS_DIR));
+app.use(express.static(PUBLIC_DIR));
+app.use('/static', express.static(PUBLIC_DIR));
+app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
+app.use(session({
+  secret:            SESSION_SECRET,
+  resave:            false,
+  saveUninitialized: false,
+  cookie:            { httpOnly: true, maxAge: 7*24*60*60*1000 },
+}));
+
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  next();
+});
+
+const auth = (req, res, next) => {
+  if (!req.session.usuario) return res.redirect('/login?error=Debes+iniciar+sesión');
+  next();
+};
+
+// ── ENDPOINTS TÉCNICOS (SIN AUTH) ────────────────────────────
+app.get('/health', (_,res) => res.json({ status:'ok' }));
+
+app.get('/debug-charset', async (req, res) => {
+  const [[vars]] = await dbPool.execute("SHOW VARIABLES LIKE 'character_set_client'");
+  const [[names]] = await dbPool.execute("SELECT @@character_set_connection AS conn, @@collation_connection AS coll");
+  const [[row]] = await dbPool.execute("SELECT pais, HEX(pais) AS hex_pais FROM tiquets LIMIT 1");
+  res.json({ vars, names, row });
+});
+
+// --- 4. EXPOSICIÓN DE MÉTRICAS A PROMETHEUS ---
+app.get('/metrics', async (req, res) => {
+  try {
+    res.set('Content-Type', register.contentType);
+    res.end(await register.metrics());
+  } catch (ex) {
+    res.status(500).end(ex);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 🔐 SEGURIDAD: Endpoint para servir avatares (SOLO USUARIOS AUTENTICADOS)
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * GET /avatar/:filename
+ * 
+ * Sirve avatares SOLO a usuarios autenticados
+ * Previene:
+ *  - Acceso directo sin autenticación
+ *  - Directory traversal attacks (../)
+ *  - Carga de archivos maliciosos
+ * 
+ * Uso en HTML:
+ *  <img src="/avatar/avatar_1_1776790437367.png">
+ */
+app.get('/avatar/:filename', (req, res) => {
+  // 1️⃣ VERIFICAR AUTENTICACIÓN
+  if (!req.session || !req.session.usuario) {
+    console.warn(`[SECURITY] Intento de acceso a avatar sin autenticación desde ${req.ip}`);
+    return res.status(403).json({ error: 'No autorizado' });
+  }
+
+  const filename = req.params.filename;
+  const avatarsDir = path.join(__dirname, 'public', 'avatars');
+  const filepath = path.join(avatarsDir, filename);
+
+  // 2️⃣ PREVENIR DIRECTORY TRAVERSAL ATTACKS
+  // Ej: intenta evitar: /avatar/../../../etc/passwd
+  if (!filepath.startsWith(avatarsDir)) {
+    console.warn(`[SECURITY] Intento de directory traversal: ${filepath}`);
+    return res.status(403).json({ error: 'Acceso denegado' });
+  }
+
+  // 3️⃣ VALIDAR QUE EL ARCHIVO EXISTE Y ES UN ARCHIVO
+  fs.stat(filepath, (err, stats) => {
+    if (err || !stats.isFile()) {
+      console.debug(`[AVATAR] Archivo no encontrado: ${filename}`);
+      return res.status(404).json({ error: 'Avatar no encontrado' });
+    }
+
+    // 4️⃣ VALIDAR EXTENSIÓN DE ARCHIVO
+    const validExtensions = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
+    const fileExt = path.extname(filepath).toLowerCase();
+    
+    if (!validExtensions.includes(fileExt)) {
+      console.warn(`[SECURITY] Extensión no permitida: ${fileExt}`);
+      return res.status(403).json({ error: 'Tipo de archivo no permitido' });
+    }
+
+    // 5️⃣ SERVIR EL ARCHIVO CON HEADERS SEGUROS
+    console.info(`[AVATAR] Usuario ${req.session.usuario.id} descargó: ${filename}`);
+    
+    res.set({
+      'Cache-Control': 'public, max-age=86400',     // Cache 1 día
+      'X-Content-Type-Options': 'nosniff',          // Prevenir MIME sniffing
+      'Content-Security-Policy': "default-src 'none'", // Máxima protección
+      'X-Frame-Options': 'DENY',                    // Prevenir clickjacking
+    });
+
+    res.sendFile(filepath, (err) => {
+      if (err) {
+        console.error(`[AVATAR] Error sirviendo archivo: ${err.message}`);
+        res.status(500).json({ error: 'Error al servir archivo' });
+      }
+    });
+  });
+});
+
+// ── NUNJUCKS ─────────────────────────────────────────────────
+const env = nunjucks.configure('views', { autoescape: true, express: app, watch: false });
+env.addGlobal('url_for', (route, kwargs) => {
+  const map = { 'tiquets.dashboard':'/dashboard', 'tiquets.todos_productos':'/productos', 'auth.login':'/login', 'auth.logout':'/logout' };
+  if (route === 'static') return '/static/'+(kwargs?.filename||'');
+  return map[route] || '/';
+});
+env.addFilter('format',  v => parseFloat(v||0).toFixed(2));
+env.addFilter('lower',   v => (v||'').toLowerCase());
+env.addFilter('upper',   v => (v||'').toUpperCase());
+env.addFilter('round',   v => Math.round(parseFloat(v)||0));
+env.addFilter('smartCant', v => {
+  const n = parseFloat(v);
+  if (isNaN(n)) return v;
+  if (Number.isInteger(n)) return String(n);
+  return n.toFixed(3).replace(/\.?0+$/, '');
+});
+env.addFilter('unique', (arr, attr) => {
+  if (!Array.isArray(arr)) return arr;
+  if (attr) {
+    const seen = new Set();
+    return arr.filter(item => {
+      const val = item[attr];
+      if (seen.has(val)) return false;
+      seen.add(val);
+      return true;
+    });
+  }
+  return [...new Set(arr)];
+});
+env.addFilter('formatDate', v => {
+  if (!v) return '—';
+  try { return new Date(v).toLocaleString('es-ES', { timeZone:'Europe/Madrid', day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' }); } catch { return '—'; }
+});
+env.addFilter('formatDateShort', v => {
+  if (!v) return '—';
+  try { return new Date(v).toLocaleDateString('es-ES', { timeZone:'Europe/Madrid', day:'2-digit', month:'2-digit', year:'numeric' }); } catch { return '—'; }
+});
+
+function navLocals(req) {
+  return { usuario: req.session.usuario?.username || '', usuario_email: req.session.usuario?.email || '', avatar_url: req.session.usuario?.avatar ? '/avatar/' + path.basename(req.session.usuario.avatar) : null };
+}
+
+// ── CONSULTAS BD ─────────────────────────────────────────────
+async function getUser(username) {
+  const[r] = await dbPool.execute('SELECT * FROM usuarios WHERE username=?', [username]);
+  return r[0] || null;
+}
+
+async function getTiquets(uid, limit = null) {
+  const limitClause = limit ? `LIMIT ${parseInt(limit, 10)}` : '';
+  const [rows] = await dbPool.execute(`
+    SELECT t.id, t.uuid, t.supermercado, t.fecha_compra, t.total_tiquet,
+           COUNT(c.id) AS total_articulos,
+           (SELECT COUNT(*) FROM tiquets t2 WHERE t2.id_usuario=? AND t2.id<=t.id) AS num_usuario
+    FROM tiquets t
+    LEFT JOIN compras c ON c.id_tiquet=t.id AND c.es_descuento=0
+    WHERE t.id_usuario=?
+    GROUP BY t.id ORDER BY t.fecha_compra DESC ${limitClause}
+  `, [uid, uid]);
+  return rows;
+}
+
+async function getTotalesPeriodo(uid) {
+  const ahora = nowMadrid();
+  const d = ahora.getDay() || 7;
+  const iS = new Date(ahora); iS.setDate(ahora.getDate() - d + 1); iS.setHours(0,0,0,0);
+  const iM = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
+  const iA = new Date(ahora.getFullYear(), 0, 1);
+  const qG  = 'SELECT COALESCE(SUM(total_tiquet),0) AS g, COUNT(*) AS n FROM tiquets WHERE id_usuario=? AND fecha_compra>=?';
+  const qGT = 'SELECT COALESCE(SUM(total_tiquet),0) AS g, COUNT(*) AS n FROM tiquets WHERE id_usuario=?';
+  const [[sem],[mes],[anyo],[tot]] = await Promise.all([
+    dbPool.execute(qG,  [uid, iS]),
+    dbPool.execute(qG,[uid, iM]),
+    dbPool.execute(qG,[uid, iA]),
+    dbPool.execute(qGT, [uid]),
+  ]);
+  const fmt = x => parseFloat(x||0).toFixed(2);
+  return {
+    semana: fmt(sem[0].g), mes: fmt(mes[0].g), anyo: fmt(anyo[0].g), total: fmt(tot[0].g),
+    n_semana: sem[0].n, n_mes: mes[0].n, n_anyo: anyo[0].n, n_total: tot[0].n,
+    avg_semana: sem[0].n ? fmt(sem[0].g/sem[0].n) : '0.00',
+    avg_mes:    mes[0].n ? fmt(mes[0].g/mes[0].n) : '0.00',
+    avg_anyo:   anyo[0].n ? fmt(anyo[0].g/anyo[0].n) : '0.00',
+    avg_total:  tot[0].n ? fmt(tot[0].g/tot[0].n) : '0.00',
+  };
+}
+
+async function getResumen(uid) {
+  const [r] = await dbPool.execute(
+    'SELECT supermercado, SUM(total_tiquet) AS total_gastado, COUNT(id) AS numero_tiquets FROM tiquets WHERE id_usuario=? GROUP BY supermercado ORDER BY total_gastado DESC',
+    [uid]
+  );
+  return r;
+}
+
+async function getTiquetByUUID(uuid, uid) {
+  const [[t]] = await dbPool.execute('SELECT * FROM tiquets WHERE uuid=? AND id_usuario=?', [uuid, uid]);
+  return t || null;
+}
+
+async function getNumTiquet(id, uid) {
+  const [[r]] = await dbPool.execute('SELECT COUNT(*) AS n FROM tiquets WHERE id_usuario=? AND id<=?', [uid, id]);
+  return r.n;
+}
+
+async function getProductosTiquet(idTiquet, uid) {
+  const [r] = await dbPool.execute(`
+    SELECT pm.nombre AS producto, pm.categoria,
+           pm.id AS id_producto,
+           c.id AS id_compra, c.cantidad,
+           c.precio_unitario AS precio, c.es_descuento
+    FROM compras c
+    JOIN productos_maestros pm ON pm.id=c.id_producto
+    WHERE c.id_tiquet=? AND c.id_usuario=? ORDER BY c.id
+  `, [idTiquet, uid]);
+  return r;
+}
+
+async function getProductosUsuario(uid, pais, supermercado) {
+  let query = `
+    SELECT pm.nombre AS producto, pm.categoria, pm.marca, pm.foto_url,
+           pm.id AS id_producto_maestro, pm.codigo_barras,
+           t.supermercado AS tienda, COALESCE(t.pais, 'España') AS pais,
+           c.cantidad, c.precio_unitario AS precio,
+           c.id AS id_compra, c.nombre_original, c.curado
+    FROM compras c
+    JOIN tiquets t ON t.id = c.id_tiquet
+    JOIN productos_maestros pm ON pm.id = c.id_producto
+    WHERE c.id_usuario = ? AND c.es_descuento = 0`;
+  const params = [uid];
+  if (pais)        { query += ' AND t.pais = ?';        params.push(pais); }
+  if (supermercado){ query += ' AND t.supermercado = ?'; params.push(supermercado); }
+  query += ' ORDER BY t.fecha_compra DESC';
+  const[r] = await dbPool.execute(query, params);
+  return r;
+}
+
+async function guardarTiquet(uid, datos) {
+  const super_ = normalizarTienda(datos.supermercado);
+  const total  = parseFloat(datos.total || 0);
+  const prods  = datos.productos ||[];
+  let fecha = datos.fecha_tiquet ? parsearFechaTicket(datos.fecha_tiquet) : nowMadrid();
+  if (!fecha) fecha = nowMadrid();
+
+  const conn = await dbPool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const tiquetUUID = crypto.randomUUID();
+
+    const [rt] = await conn.execute(
+      'INSERT INTO tiquets (id_usuario, supermercado, total_tiquet, fecha_compra, uuid) VALUES (?,?,?,?,?)',
+      [uid, super_, total, fecha, tiquetUUID]
+    );
+    const idT = rt.insertId;
+
+    for (const p of prods) {
+      const esD    = p.es_descuento ? 1 : 0;
+      const nom    = (p.producto || 'Desconocido').trim().toUpperCase();
+      const nomOcr = (p.nombre_ocr || nom).trim().toUpperCase();
+      const cat    = p.categoria || 'Otros';
+      const cant   = parseFloat(p.cantidad || 1);
+      const prec   = parseFloat(p.precio   || 0);
+
+      let idP;
+      let yaVinculado = 0;
+
+      if (esD) {
+        idP = ID_PRODUCTO_DESCUENTO;
+      } else {
+        // --- 6. CONSULTAR EL DICCIONARIO INTELIGENTE ---
+        const[mapeo] = await conn.execute(
+          'SELECT id_producto_maestro FROM diccionario_productos WHERE nombre_en_tiquet = ?', [nomOcr]
+        );
+        
+        if (mapeo.length > 0) {
+          idP = mapeo[0].id_producto_maestro;
+          yaVinculado = 1; // El sistema lo ha enlazado automáticamente
+          await conn.execute('UPDATE diccionario_productos SET usos = usos + 1 WHERE nombre_en_tiquet = ?',[nomOcr]);
+        } else {
+          const [ex] = await conn.execute('SELECT id FROM productos_maestros WHERE nombre=?', [nom]);
+          if (ex.length) {
+            idP = ex[0].id;
+            if (cat !== 'Otros') await conn.execute('UPDATE productos_maestros SET categoria=? WHERE id=? AND categoria="Otros"', [cat, idP]);
+          } else {
+            const [ins] = await conn.execute('INSERT INTO productos_maestros (nombre, categoria) VALUES (?,?)', [nom, cat]);
+            idP = ins.insertId;
+          }
+        }
+
+        if (prec > 0) {
+          await conn.execute(
+            'INSERT INTO historial_precios (id_producto, supermercado, precio) VALUES (?,?,?)',
+            [idP, super_, prec]
+          ).catch(() => {});
+        }
+      }
+
+      await conn.execute(
+        `INSERT INTO compras (id_tiquet, id_usuario, id_producto, cantidad, precio_unitario, es_descuento, nombre_original, curado)
+         VALUES (?,?,?,?,?,?,?,?)`,[idT, uid, idP, cant, prec, esD, nomOcr, yaVinculado]
+      );
+    }
+
+    await conn.commit();
+    return { id: idT, uuid: tiquetUUID };
+  } catch(e) { await conn.rollback(); throw e; } finally { conn.release(); }
+}
+
+// ── AUTH ─────────────────────────────────────────────────────
+app.get('/', (_,res) => res.redirect('/login'));
+app.get('/logout', (req,res) => req.session.destroy(() => res.redirect('/login')));
+
+app.get('/login', (req,res) => {
+  if (req.session.usuario) return res.redirect('/dashboard');
+  const messages = [];
+  if (req.query.error)   messages.push(['danger',  decodeURIComponent(req.query.error)]);
+  if (req.query.success) messages.push(['success', decodeURIComponent(req.query.success)]);
+  res.render('login.html', { messages });
+});
+
+app.post('/login', async (req,res) => {
+  const { accion, username, password, email } = req.body;
+  if (!username || !password) return res.redirect('/login?error=Usuario+y+contraseña+requeridos');
+  try {
+    if (accion === 'registro') {
+      if (!email) return res.redirect('/login?error=Email+obligatorio');
+      if (username.length < 3) return res.redirect('/login?error=Usuario+mínimo+3+caracteres');
+      if (password.length < 8) return res.redirect('/login?error=Contraseña+mínimo+8+caracteres');
+      if (await getUser(username)) return res.redirect('/login?error=Usuario+ya+existe');
+      await dbPool.execute('INSERT INTO usuarios (username,email,password_hash,activo) VALUES (?,?,?,1)',[username, email, bcryptjs.hashSync(password, 12)]);
+      return res.redirect('/login?success=Cuenta+creada');
+    }
+    const u = await getUser(username);
+    if (!u || !bcryptjs.compareSync(password, u.password_hash) || !u.activo)
+      return res.redirect('/login?error=Usuario+o+contraseña+incorrectos');
+    if (u.totp_enabled) {
+      req.session.totp_pending = { id: u.id, username: u.username, email: u.email, avatar: u.avatar || null };
+      return res.redirect('/login/2fa');
+    }
+    req.session.usuario = { id: u.id, username: u.username, email: u.email, avatar: u.avatar || null };
+    return res.redirect('/dashboard');
+  } catch(e) { console.error('[Auth]', e.message); res.redirect('/login?error=Error+servidor'); }
+});
+
+app.get('/login/2fa', (req, res) => {
+  if (!req.session.totp_pending) return res.redirect('/login');
+  const messages =[];
+  if (req.query.error) messages.push(['danger', decodeURIComponent(req.query.error)]);
+  res.render('login_2fa.html', { messages });
+});
+
+app.post('/login/2fa', async (req, res) => {
+  const pending = req.session.totp_pending;
+  if (!pending) return res.redirect('/login');
+  const token = (req.body.token || '').replace(/\s/g, '');
+  const [[u]] = await dbPool.execute('SELECT totp_secret FROM usuarios WHERE id=?', [pending.id]);
+  let valid = false;
+  if (token.length === 6 && /^\d+$/.test(token)) {
+    const decryptedSecret = decrypt(u.totp_secret);
+    valid = speakeasy.totp.verify({ secret: decryptedSecret, encoding: 'base32', token, window: 1 });
+  } else {
+    const [codes] = await dbPool.execute('SELECT id, codigo_hash FROM codigos_recuperacion WHERE id_usuario=? AND usado=0', [pending.id]);
+    for (const row of codes) {
+      if (bcryptjs.compareSync(token, row.codigo_hash)) { valid = true; await dbPool.execute('UPDATE codigos_recuperacion SET usado=1 WHERE id=?', [row.id]); break; }
+    }
+  }
+  if (!valid) return res.redirect('/login/2fa?error=Código+incorrecto+o+ya+utilizado');
+  delete req.session.totp_pending;
+  req.session.usuario = pending;
+  return res.redirect('/dashboard');
+});
+
+// ── DASHBOARD ────────────────────────────────────────────────
+app.get('/dashboard', auth, async (req,res) => {
+  try {
+    const uid = req.session.usuario.id;
+    const[historial, resumen, totales, totalTiquets] = await Promise.all([
+      getTiquets(uid, 5),
+      getResumen(uid),
+      getTotalesPeriodo(uid),
+      dbPool.execute('SELECT COUNT(*) AS n FROM tiquets WHERE id_usuario=?', [uid]).then(([r]) => r[0].n),
+    ]);
+    const messages =[];
+    if (req.query.error)   messages.push(['danger',  decodeURIComponent(req.query.error)]);
+    if (req.query.success) messages.push(['success', decodeURIComponent(req.query.success)]);
+    res.render('dashboard.html', { ...navLocals(req), historial, resumen, totales, total: totales.total, totalTiquets, messages });
+  } catch(e) { console.error('[Dashboard]', e.message); res.redirect('/login?error=Error'); }
+});
+
+app.get('/tiquets', auth, async (req,res) => {
+  try {
+    const uid = req.session.usuario.id;
+    const[historial, totales] = await Promise.all([ getTiquets(uid), getTotalesPeriodo(uid) ]);
+    const messages =[];
+    if (req.query.error)   messages.push(['danger',  decodeURIComponent(req.query.error)]);
+    if (req.query.success) messages.push(['success', decodeURIComponent(req.query.success)]);
+    res.render('todos_tiquets.html', { ...navLocals(req), historial, totales, total: totales.total, messages });
+  } catch(e) { console.error('[Tiquets]', e.message); res.redirect('/dashboard?error=Error'); }
+});
+
+// ── OCR / PREVIEW / CONFIRMAR ────────────────────────────────
+app.post('/subir_tiquet', auth, (req, res) => {
+  uploadTiquet.single('foto_tiquet')(req, res, async (err) => {
+    if (err) return res.redirect('/dashboard?error=' + encodeURIComponent(err.message));
+    if (!req.file) return res.redirect('/dashboard?error=Sin+archivo');
+    try {
+      const form = new FormData();
+      form.append('file', req.file.buffer, { filename: req.file.originalname, contentType: req.file.mimetype });
+      const r = await axios.post(OCR_URL, form, { headers: form.getHeaders(), timeout: 90000 });
+      req.session.tiquetPendent = r.data;
+      return res.redirect('/preview');
+    } catch(e) { return res.redirect('/dashboard?error=Error+procesando+imagen'); }
+  });
+});
+
+app.get('/preview', auth, (req,res) => {
+  const d = req.session.tiquetPendent; if (!d) return res.redirect('/dashboard');
+  const sinP = !d.productos || d.productos.length === 0;
+  res.render('tiquet_preview.html', {
+    ...navLocals(req), supermercado: normalizarTienda(d.supermercado||''),
+    productos: d.productos||[], total: parseFloat(d.total||0).toFixed(2),
+    fecha_tiquet: d.fecha_tiquet||null, hay_error: d.error||sinP,
+    error_msg: d.error||(sinP?'Sin productos':null), messages:[],
+  });
+});
+
+app.post('/confirmar', auth, async (req,res) => {
+  // Limpiamos la sesión porque ya no la necesitamos
+  delete req.session.tiquetPendent; 
+
+  try {
+    // 1. Recogemos los datos base del formulario HTML
+    const formDatos = {
+      supermercado: req.body.supermercado,
+      fecha_tiquet: req.body.fecha_tiquet,
+      total: req.body.total,
+      productos: []
+    };
+
+    // 2. Procesamos las líneas de los productos editados
+    if (req.body.productos) {
+      // Object.values evita errores si Express recibe un objeto con índices salteados (ej. borraste la fila 2)
+      const prodList = Object.values(req.body.productos);
+      
+      formDatos.productos = prodList.map(p => ({
+        cantidad: p.cantidad,
+        marca: p.marca,
+        producto: p.producto,
+        categoria: p.categoria,
+        precio: p.precio,
+        es_descuento: p.es_descuento === '1', // Convertimos el '1' o '0' del formulario a boolean
+        nombre_ocr: p.nombre_ocr || p.producto
+      }));
+    }
+
+    // 3. ¡Ahora sí! Guardamos los datos que ha editado el usuario
+    await guardarTiquet(req.session.usuario.id, formDatos);
+    ticketsSubidosCounter.inc(); 
+    res.redirect('/dashboard?success=Tiquet+guardado+y+editado+con+éxito');
+
+  } catch(e) { 
+    console.error('[Confirmar]', e.message); 
+    res.redirect('/dashboard?error=Error+guardando+las+ediciones'); 
+  }
+});
+
+app.post('/rechazar', auth, (req,res) => { delete req.session.tiquetPendent; res.redirect('/dashboard'); });
+
+app.get('/tiquet/:uuid', auth, async (req,res) => {
+  try {
+    const uid = req.session.usuario.id;
+    const tiquet = await getTiquetByUUID(req.params.uuid, uid);
+    if (!tiquet) return res.redirect('/dashboard?error=Tiquet+no+encontrado');
+    const[productos, numUsuario] = await Promise.all([
+      getProductosTiquet(tiquet.id, uid),
+      getNumTiquet(tiquet.id, uid),
+    ]);
+    res.render('tiquet_detalle.html', { ...navLocals(req), tiquet, productos, numUsuario, messages:[] });
+  } catch(e) { console.error('[Tiquet]', e.message); res.redirect('/dashboard'); }
+});
+
+app.post('/tiquet/:uuid/eliminar', auth, async (req,res) => {
+  const uid = req.session.usuario.id;
+  const conn = await dbPool.getConnection();
+  try {
+    const [[t]] = await conn.execute('SELECT id FROM tiquets WHERE uuid=? AND id_usuario=?',[req.params.uuid, uid]);
+    if (!t) { conn.release(); return res.redirect('/dashboard?error=No+encontrado'); }
+    await conn.beginTransaction();
+    await conn.execute('DELETE FROM compras WHERE id_tiquet=?', [t.id]);
+    await conn.execute('DELETE FROM tiquets WHERE id=? AND id_usuario=?', [t.id, uid]);
+    await conn.commit();
+    res.redirect('/dashboard?success=Eliminado');
+  } catch(e) { await conn.rollback(); console.error('[Eliminar]', e.message); res.redirect('/dashboard?error=Error'); } finally { conn.release(); }
+});
+
+// ── PRODUCTOS ────────────────────────────────────────────────
+app.get('/productos', auth, async (req, res) => {
+  const uid = req.session.usuario.id;
+  const { pais = '', supermercado = '' } = req.query;
+  try {
+    const productos = await getProductosUsuario(uid, pais, supermercado);
+    productos.forEach(p => p.tienda = normalizarTienda(p.tienda));
+
+    const idsMaestros =[...new Set(productos.map(p => p.id_producto_maestro))];
+    let verifMap = {};
+    if (idsMaestros.length > 0) {
+      const ph = idsMaestros.map(() => '?').join(',');
+      const[verificaciones] = await dbPool.execute(`
+        SELECT vb.id AS id_verif, vb.id_producto, vb.codigo_barras,
+               vb.votos_si, vb.votos_no, vb.estado, vu.voto AS mi_voto
+        FROM verificaciones_barcode vb
+        LEFT JOIN votos_usuario vu ON vu.id_verificacion = vb.id AND vu.id_usuario = ?
+        WHERE vb.id_producto IN (${ph}) AND vb.estado = 'pendiente'
+      `, [uid, ...idsMaestros]);
+      verificaciones.forEach(v => { verifMap[v.id_producto] = v; });
+    }
+    const productosConVerif = productos.map(p => ({ ...p, verificacion: verifMap[p.id_producto_maestro] || null }));
+
+    const[paises]  = await dbPool.execute('SELECT DISTINCT pais FROM tiquets WHERE id_usuario=?', [uid]).catch(() => [[]]);
+    const [tiendas] = await dbPool.execute('SELECT DISTINCT supermercado FROM tiquets WHERE id_usuario=?', [uid]);
+
+    res.render('todos_productos.html', {
+      ...navLocals(req), productos: productosConVerif,
+      paises: paises.map(r => r.pais).filter(Boolean),
+      tiendas: tiendas.map(r => normalizarTienda(r.supermercado)),
+      filtro_pais: pais, filtro_supermercado: supermercado, messages: [],
+    });
+  } catch(e) { console.error('[Productos]', e.message); res.redirect('/dashboard'); }
+});
+
+app.get('/api/producto/:id/precios', auth, async (req, res) => {
+  try {
+    const idProducto = parseInt(req.params.id, 10);
+    if (isNaN(idProducto)) return res.status(400).json({ error: 'ID inválido' });
+    const [historial] = await dbPool.execute(
+      'SELECT supermercado, precio, fecha_registro FROM historial_precios WHERE id_producto = ? ORDER BY fecha_registro ASC',
+      [idProducto]
+    );
+    const [[maestro]] = await dbPool.execute('SELECT nombre, marca FROM productos_maestros WHERE id = ?', [idProducto]);
+    if (!maestro) return res.status(404).json({ error: 'Producto no encontrado' });
+    const bySuper = {};
+    historial.forEach(row => {
+      if (!bySuper[row.supermercado]) bySuper[row.supermercado] = [];
+      bySuper[row.supermercado].push({ precio: parseFloat(row.precio), fecha: row.fecha_registro });
+    });
+    const stats = Object.entries(bySuper).map(([s, rows]) => {
+      const precios = rows.map(r => r.precio);
+      return {
+        supermercado: s,
+        min:  Math.min(...precios).toFixed(2),
+        max:  Math.max(...precios).toFixed(2),
+        avg:  (precios.reduce((a,b) => a+b, 0) / precios.length).toFixed(2),
+        ultimo: rows[rows.length-1].precio.toFixed(2),
+        ultima_fecha: rows[rows.length-1].fecha,
+        historial: rows,
+      };
+    }).sort((a, b) => parseFloat(a.avg) - parseFloat(b.avg));
+    res.json({ producto: maestro, stats, total_registros: historial.length });
+  } catch(e) { console.error('[Precios]', e.message); res.status(500).json({ error: 'Error interno' }); }
+});
+
+app.get('/api/maestros/buscar', auth, async (req, res) => {
+  const q = `%${req.query.q || ''}%`;
+  try {
+    const [rows] = await dbPool.execute(
+      'SELECT id, nombre, marca, categoria, foto_url, codigo_barras FROM productos_maestros WHERE nombre LIKE ? OR marca LIKE ? ORDER BY (foto_url IS NOT NULL) DESC LIMIT 10',
+      [q, q]
+    );
+    res.json(rows);
+  } catch(e) { res.status(500).json([]); }
+});
+
+function mapOffProducts(data) {
+  const products = Array.isArray(data?.products) ? data.products : [];
+  return products.map(p => {
+    const nombre = (p.product_name_es || p.product_name || p.generic_name_es || p.generic_name || '').trim();
+    if (!nombre) return null;
+    return {
+      nombre,
+      marca: (p.brands || 'Generico').split(',')[0].trim(),
+      foto_url: p.image_front_small_url || p.image_small_url || '',
+      codigo_barras: p.code || null,
+      fuente: 'OFF',
+    };
+  }).filter(Boolean);
+}
+
+function offRequestConfig(q, timeoutMs) {
+  return {
+    params: {
+      search_terms: q,
+      search_simple: 1,
+      action: 'process',
+      json: 1,
+      page_size: 15,
+      lc: 'es',
+      cc: 'es',
+    },
+    timeout: timeoutMs,
+    headers: {
+      'User-Agent': 'Wget/1.21.3',
+      Accept: '*/*',
+    },
+  };
+}
+
+function parseOffResults(data) {
+  if (typeof data === 'string') {
+    const head = data.slice(0, 300).toLowerCase();
+    if (head.includes('<!doctype html') || head.includes('<html')) {
+      throw new Error('OFF respondió HTML temporal');
+    }
+    throw new Error('OFF payload no-JSON');
+  }
+  if (!data || typeof data !== 'object' || !Array.isArray(data.products)) {
+    throw new Error('OFF payload inválido');
+  }
+  return mapOffProducts(data);
+}
+
+app.get('/api/proxy/off', auth, async (req, res) => {
+  const timeoutMs = Number.isFinite(OFF_TIMEOUT_MS) ? OFF_TIMEOUT_MS : 10000;
+  try {
+    const q = (req.query.q || '').trim();
+    if (!q) return res.json([]);
+
+    const candidates = [
+      { name: 'direct-org', url: OFF_SEARCH_URL, timeout: timeoutMs },
+      { name: 'direct-net', url: OFF_SECONDARY_URL, timeout: timeoutMs },
+      { name: 'nginx-fallback', url: OFF_FALLBACK_URL, timeout: timeoutMs + 2000 },
+    ].filter((item, index, arr) => arr.findIndex(x => x.url === item.url) === index);
+
+    let lastReason = 'desconocido';
+    for (const source of candidates) {
+      try {
+        const r = await axios.get(source.url, offRequestConfig(q, source.timeout));
+        return res.json(parseOffResults(r.data));
+      } catch (attemptError) {
+        lastReason = attemptError.response?.status || attemptError.code || attemptError.message;
+        console.warn(`[OFF] ${source.name} falló (${lastReason})`);
+      }
+    }
+
+    console.error(`[OFF] Todos los orígenes fallaron (${lastReason})`);
+    return res.json([]);
+  } catch(e) {
+    const reason = e.response?.status || e.code || e.message;
+    console.error(`[OFF] Fallback agotado: ${reason}`);
+    return res.json([]);
+  }
+});
+
+// --- 7. VINCULACIÓN INTELIGENTE: Mueve compras, borra basura y añade redirecciones ---
+app.post('/api/compras/vincular', auth, async (req, res) => {
+  const { id_compra, id_producto_maestro, producto_externo } = req.body;
+  const uid = req.session.usuario.id;
+  const conn = await dbPool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    // 1. Averiguar quién es el producto "basura" actual
+    const [compraRows] = await conn.execute(
+      `SELECT id_producto, nombre_original FROM compras WHERE id = ? AND id_usuario = ?`,
+      [id_compra, uid]
+    );
+    if (compraRows.length === 0) {
+      await conn.rollback();
+      return res.status(404).json({ error: 'Compra no encontrada' });
+    }
+
+    const idMaestroBasura = compraRows[0].id_producto;
+    const nombreEnTiquet = compraRows[0].nombre_original;
+
+    // 2. Buscar o Crear el Maestro Oficial (de OFF o de la BDD local)
+    let idMaestroOficial = id_producto_maestro;
+    let barcode = producto_externo ? producto_externo.codigo_barras : null;
+
+    if (producto_externo) {
+      const [existe] = await conn.execute('SELECT id FROM productos_maestros WHERE codigo_barras = ?', [barcode]);
+      if (existe.length > 0) {
+        idMaestroOficial = existe[0].id;
+      } else {
+        const [ins] = await conn.execute(
+          'INSERT INTO productos_maestros (nombre, marca, categoria, foto_url, codigo_barras) VALUES (?,?,?,?,?)',[producto_externo.nombre.toUpperCase(), (producto_externo.marca || 'Genérica').toUpperCase(), 'Alimentacion', producto_externo.foto_url, barcode]
+        );
+        idMaestroOficial = ins.insertId;
+      }
+    } else if (!idMaestroOficial) {
+      throw new Error("Se requiere un producto oficial para vincular.");
+    }
+
+    // 3. Alimentar el Diccionario (El sistema "aprende")
+    if (nombreEnTiquet) {
+      await conn.execute(`
+        INSERT INTO diccionario_productos (nombre_en_tiquet, id_producto_maestro, usos) 
+        VALUES (?, ?, 1)
+        ON DUPLICATE KEY UPDATE id_producto_maestro = ?, usos = usos + 1, actualizado_en = NOW()
+      `,[nombreEnTiquet, idMaestroOficial, idMaestroOficial]);
+    }
+
+    // 4. Mover historial, mover compras, y eliminar el "basura"
+    if (idMaestroBasura && idMaestroBasura !== idMaestroOficial) {
+      // Mover compras de todos los usuarios para este mismo producto
+      await conn.execute(`UPDATE compras SET id_producto = ?, curado = 1 WHERE id_producto = ?`, [idMaestroOficial, idMaestroBasura]);
+      
+      // Mover historial de precios
+      await conn.execute(`UPDATE historial_precios SET id_producto = ? WHERE id_producto = ?`,[idMaestroOficial, idMaestroBasura]);
+      
+      // Intentar eliminar el producto temporal que ya no tiene compras (limpieza de basura)
+      try {
+          await conn.execute(`DELETE FROM productos_maestros WHERE id = ?`, [idMaestroBasura]);
+      } catch(err) {
+          console.warn(`No se pudo borrar el maestro temporal ${idMaestroBasura}.`);
+      }
+    } else {
+      // Si por alguna razón no hay producto basura, actualizamos solo esta compra
+      await conn.execute('UPDATE compras SET id_producto = ?, curado = 1 WHERE id = ?', [idMaestroOficial, id_compra]);
+    }
+
+    // 5. Crear la verificación de código de barras (Votos Colaborativos)
+    if (barcode) {
+      const [verifRows] = await conn.execute(`SELECT id FROM verificaciones_barcode WHERE id_producto = ? AND codigo_barras = ?`, [idMaestroOficial, barcode]);
+      let verifId;
+      if (verifRows.length === 0) {
+          const[insertVerif] = await conn.execute(`INSERT INTO verificaciones_barcode (id_producto, codigo_barras, votos_si) VALUES (?, ?, 0)`, [idMaestroOficial, barcode]);
+          verifId = insertVerif.insertId;
+      } else {
+          verifId = verifRows[0].id;
+      }
+      
+      const [votoResult] = await conn.execute(`INSERT IGNORE INTO votos_usuario (id_usuario, id_verificacion, voto) VALUES (?, ?, 'si')`,[uid, verifId]);
+      
+      if (votoResult.affectedRows > 0) {
+          await conn.execute(`UPDATE verificaciones_barcode SET votos_si = votos_si + 1 WHERE id = ?`, [verifId]);
+          await verificarConsenso(conn, verifId);
+      }
+    }
+
+    await conn.commit();
+    res.json({ success: true, message: 'Producto vinculado y base de datos optimizada' });
+  } catch(e) { 
+    await conn.rollback(); 
+    console.error('[Vincular]', e.message); 
+    res.status(500).json({ error: e.message }); 
+  } finally { 
+    conn.release(); 
+  }
+});
+
+// --- 8. VOTAR VERIFICACIONES DE CÓDIGO DE BARRAS ---
+app.post('/api/verificaciones/votar', auth, async (req, res) => {
+  const { id_verificacion, voto } = req.body;
+  const uid = req.session.usuario.id;
+  if (!['si', 'no'].includes(voto)) return res.status(400).json({ error: 'Voto inválido' });
+  const conn = await dbPool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [[verif]] = await conn.execute("SELECT * FROM verificaciones_barcode WHERE id = ? AND estado = 'pendiente'", [id_verificacion]);
+    if (!verif) { await conn.rollback(); return res.status(404).json({ error: 'No encontrada o ya cerrada' }); }
+    const [[yaVoto]] = await conn.execute('SELECT id FROM votos_usuario WHERE id_usuario = ? AND id_verificacion = ?', [uid, id_verificacion]);
+    if (yaVoto) { await conn.rollback(); return res.status(409).json({ error: 'Ya has votado' }); }
+    await conn.execute('INSERT INTO votos_usuario (id_usuario, id_verificacion, voto) VALUES (?,?,?)',[uid, id_verificacion, voto]);
+    const campo = voto === 'si' ? 'votos_si' : 'votos_no';
+    await conn.execute(`UPDATE verificaciones_barcode SET ${campo} = ${campo} + 1 WHERE id = ?`,[id_verificacion]);
+    await verificarConsenso(conn, id_verificacion);
+    await conn.commit();
+    const [[updated]] = await dbPool.execute('SELECT votos_si, votos_no, estado FROM verificaciones_barcode WHERE id = ?',[id_verificacion]);
+    res.json({ success: true, ...updated });
+  } catch(e) { await conn.rollback(); console.error('[Votar]', e.message); res.status(500).json({ error: e.message }); } finally { conn.release(); }
+});
+
+// ── EDITAR PRECIO DE UNA LÍNEA DE COMPRA ─────────────────────
+app.post('/api/compra/:idCompra/precio', auth, async (req, res) => {
+  const uid      = req.session.usuario.id;
+  const idCompra = parseInt(req.params.idCompra, 10);
+  const nuevoPrecio = parseFloat(req.body.precio);
+
+  if (isNaN(idCompra) || isNaN(nuevoPrecio)) {
+    return res.status(400).json({ error: 'Datos inválidos' });
+  }
+
+  const conn = await dbPool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    // 1. Verificar que la compra pertenece al usuario y obtener datos
+    const [[compra]] = await conn.execute(`
+      SELECT c.id, c.id_tiquet, c.id_producto, c.cantidad,
+             c.precio_unitario, c.es_descuento, t.supermercado
+      FROM compras c
+      JOIN tiquets t ON t.id = c.id_tiquet
+      WHERE c.id = ? AND c.id_usuario = ?
+    `, [idCompra, uid]);
+
+    if (!compra) {
+      await conn.rollback();
+      return res.status(404).json({ error: 'Compra no encontrada' });
+    }
+
+    // 2. Actualizar precio en compras
+    await conn.execute(
+      'UPDATE compras SET precio_unitario = ? WHERE id = ?',
+      [nuevoPrecio, idCompra]
+    );
+
+    // 3. Registrar en historial_precios (solo si no es descuento)
+    if (!compra.es_descuento && compra.id_producto && nuevoPrecio !== 0) {
+      await conn.execute(
+        'INSERT INTO historial_precios (id_producto, supermercado, precio) VALUES (?,?,?)',
+        [compra.id_producto, compra.supermercado, Math.abs(nuevoPrecio)]
+      );
+    }
+
+    // 4. Recalcular y actualizar total del tiquet
+    const [[{ nuevo_total }]] = await conn.execute(
+      `SELECT COALESCE(SUM(cantidad * precio_unitario), 0) AS nuevo_total
+       FROM compras WHERE id_tiquet = ?`,
+      [compra.id_tiquet]
+    );
+
+    await conn.execute(
+      'UPDATE tiquets SET total_tiquet = ? WHERE id = ?',
+      [nuevo_total, compra.id_tiquet]
+    );
+
+    await conn.commit();
+    res.json({ success: true, nuevo_precio: nuevoPrecio, nuevo_total });
+  } catch (e) {
+    await conn.rollback();
+    console.error('[EditarPrecio]', e.message);
+    res.status(500).json({ error: e.message });
+  } finally {
+    conn.release();
+  }
+});
+
+// ── PERFIL ───────────────────────────────────────────────────
+
+app.get('/perfil', auth, async (req,res) => {
+  try {
+    const uid = req.session.usuario.id;
+    const [[userDb]] = await dbPool.execute('SELECT email, totp_enabled FROM usuarios WHERE id = ?', [uid]);
+    const [historial, totales] = await Promise.all([ getTiquets(uid), getTotalesPeriodo(uid) ]);
+    const messages =[];
+    if (req.query.success) messages.push(['success', decodeURIComponent(req.query.success)]);
+    if (req.query.error)   messages.push(['danger',  decodeURIComponent(req.query.error)]);
+    res.render('perfil.html', { ...navLocals(req), email: userDb.email || '', totp_enabled: userDb.totp_enabled === 1, total_tiquets: historial.length, total_gastado: totales.total, messages });
+  } catch(e) { res.redirect('/dashboard'); }
+});
+
+app.post('/perfil', auth, async (req,res) => {
+  const { nuevo_username, nuevo_email, password_actual, nueva_password } = req.body;
+  const uid = req.session.usuario.id; const msgs = [];
+  try {
+    const [[user]] = await dbPool.execute('SELECT * FROM usuarios WHERE id=?', [uid]);
+    if (!user) return res.redirect('/logout');
+    if (nuevo_username && nuevo_username !== user.username) { await dbPool.execute('UPDATE usuarios SET username=? WHERE id=?', [nuevo_username, uid]); req.session.usuario.username = nuevo_username; msgs.push(['success','Nombre actualizado.']); }
+    if (nuevo_email && nuevo_email !== user.email) { await dbPool.execute('UPDATE usuarios SET email=? WHERE id=?',[nuevo_email, uid]); req.session.usuario.email = nuevo_email; msgs.push(['success','Email actualizado.']); }
+    if (password_actual && nueva_password) {
+      if (!bcryptjs.compareSync(password_actual, user.password_hash)) msgs.push(['danger','Contraseña actual incorrecta.']);
+      else if (nueva_password.length < 8) msgs.push(['danger','Mínimo 8 caracteres.']);
+      else { await dbPool.execute('UPDATE usuarios SET password_hash=? WHERE id=?',[bcryptjs.hashSync(nueva_password, 12), uid]); msgs.push(['success','Contraseña cambiada.']); }
+    }
+  } catch(e) { msgs.push(['danger','Error al actualizar.']); }
+  try {
+    const [[userDb]] = await dbPool.execute('SELECT email, totp_enabled FROM usuarios WHERE id = ?', [uid]);
+    const [historial, totales] = await Promise.all([ getTiquets(uid), getTotalesPeriodo(uid) ]);
+    res.render('perfil.html', { ...navLocals(req), email: userDb.email || '', totp_enabled: userDb.totp_enabled === 1, total_tiquets: historial.length, total_gastado: totales.total, messages: msgs });
+  } catch(e) { res.redirect('/dashboard'); }
+});
+
+app.post('/perfil/avatar', auth, (req, res) => {
+  uploadAvatar.single('avatar')(req, res, async (err) => {
+    if (err || !req.file) return res.json({ success: false, error: err?.message || 'Sin archivo' });
+    try {
+      const url = `/avatars/${req.file.filename}`;
+      const [[u]] = await dbPool.execute('SELECT avatar FROM usuarios WHERE id=?',[req.session.usuario.id]);
+      if (u?.avatar?.startsWith('/avatars/')) { const old = path.join(__dirname, 'public', u.avatar); if (fs.existsSync(old)) fs.unlink(old, () => {}); }
+      await dbPool.execute('UPDATE usuarios SET avatar=? WHERE id=?', [url, req.session.usuario.id]);
+      req.session.usuario.avatar = url;
+      res.json({ success: true, avatar: url });
+    } catch(e) { res.json({ success: false, error: 'Error guardando avatar' }); }
+  });
+});
+
+app.post('/perfil/eliminar_cuenta', auth, async (req, res) => {
+  const { password_borrado } = req.body; const uid = req.session.usuario.id;
+  if (!password_borrado) return res.redirect('/perfil?error=Debes+introducir+tu+contraseña');
+  const conn = await dbPool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [[u]] = await conn.execute('SELECT password_hash, avatar FROM usuarios WHERE id=?', [uid]);
+    if (!u) { await conn.rollback(); return res.redirect('/login'); }
+    if (!bcryptjs.compareSync(password_borrado, u.password_hash)) { await conn.rollback(); return res.redirect('/perfil?error=Contraseña+incorrecta.+Operación+cancelada.'); }
+    if (u.avatar?.startsWith('/avatars/')) { const p = path.join(__dirname, 'public', u.avatar); if (fs.existsSync(p)) fs.unlinkSync(p); }
+    await conn.execute('DELETE FROM compras              WHERE id_usuario=?', [uid]);
+    await conn.execute('DELETE FROM tiquets              WHERE id_usuario=?', [uid]);
+    await conn.execute('DELETE FROM codigos_recuperacion WHERE id_usuario=?', [uid]);
+    await conn.execute('DELETE FROM usuarios             WHERE id=?',[uid]);
+    await conn.commit();
+    req.session.destroy(() => res.redirect('/login?success=Tu+cuenta+ha+sido+eliminada+para+siempre'));
+  } catch(e) { await conn.rollback(); res.redirect('/perfil?error=Error+interno'); } finally { conn.release(); }
+});
+
+// ── 2FA ──────────────────────────────────────────────────────
+app.get('/perfil/2fa/setup', auth, async (req, res) => {
+  const uid = req.session.usuario.id;
+  const [[u]] = await dbPool.execute('SELECT totp_enabled FROM usuarios WHERE id=?', [uid]);
+  if (u.totp_enabled) return res.redirect('/perfil?error=2FA+ya+activo');
+  const secret = speakeasy.generateSecret({ name: `Esítiron (${req.session.usuario.username})`, length: 20 });
+  req.session.totp_setup_secret = secret.base32;
+  const formattedSecret = secret.base32.match(/.{1,4}/g).join(' ');
+  const qrDataUrl = await QRCode.toDataURL(secret.otpauth_url);
+  res.render('perfil_2fa_setup.html', { usuario: req.session.usuario.username, qr: qrDataUrl, secret_manual: formattedSecret, messages:[] });
+});
+
+app.post('/perfil/2fa/setup', auth, async (req, res) => {
+  const { token } = req.body; const secret = req.session.totp_setup_secret;
+  if (!secret) return res.redirect('/perfil/2fa/setup');
+  const valid = speakeasy.totp.verify({ secret, encoding: 'base32', token: (token||'').replace(/\s/g,''), window: 1 });
+  if (!valid) return res.redirect('/perfil/2fa/setup?error=Código+incorrecto');
+  const encryptedSecret = encrypt(secret);
+  const backupCodes = Array.from({ length: 8 }, () => crypto.randomBytes(4).toString('hex'));
+  const hashedCodes = backupCodes.map(code => bcryptjs.hashSync(code, 10));
+  const conn = await dbPool.getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.execute('UPDATE usuarios SET totp_secret=?, totp_enabled=1 WHERE id=?',[encryptedSecret, req.session.usuario.id]);
+    await conn.execute('DELETE FROM codigos_recuperacion WHERE id_usuario=?',[req.session.usuario.id]);
+    for (const hash of hashedCodes) await conn.execute('INSERT INTO codigos_recuperacion (id_usuario, codigo_hash) VALUES (?,?)',[req.session.usuario.id, hash]);
+    await conn.commit();
+  } catch(e) { await conn.rollback(); return res.redirect('/perfil/2fa/setup?error=Error+interno+al+guardar'); } finally { conn.release(); }
+  delete req.session.totp_setup_secret;
+  req.session.backupCodes = backupCodes;
+  res.redirect('/perfil/2fa/backup');
+});
+
+app.get('/perfil/2fa/backup', auth, (req, res) => {
+  const codes = req.session.backupCodes;
+  if (!codes) return res.redirect('/perfil');
+  delete req.session.backupCodes;
+  res.render('perfil_2fa_backup.html', { ...navLocals(req), codes });
+});
+
+app.post('/perfil/2fa/disable', auth, async (req, res) => {
+  const { password } = req.body; const uid = req.session.usuario.id;
+  const [[u]] = await dbPool.execute('SELECT password_hash FROM usuarios WHERE id=?', [uid]);
+  if (!bcryptjs.compareSync(password, u.password_hash)) return res.redirect('/perfil?error=Contraseña+incorrecta');
+  const conn = await dbPool.getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.execute('UPDATE usuarios SET totp_secret=NULL, totp_enabled=0 WHERE id=?', [uid]);
+    await conn.execute('DELETE FROM codigos_recuperacion WHERE id_usuario=?', [uid]);
+    await conn.commit();
+  } catch(e) { await conn.rollback(); } finally { conn.release(); }
+  res.redirect('/perfil?success=2FA+desactivado');
+});
+
+//  GRUPOS Y RUTAS MODULARES
+const { initGruposRoutes } = require('./grupos');
+
+const gruposRouter = initGruposRoutes(dbPool); 
+
+app.use('/', gruposRouter);
+
+// ── API LEGACY ────────────────────────────────────────────────
+app.get('/api/tiquets', auth, async (req,res) => {
+  try { res.json({ success: true, data: await getTiquets(req.session.usuario.id) }); }
+  catch(e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+console.log('[SECURITY] ✅ Endpoint /avatar/ protegido habilitado');
+console.log('[OFF] ✅ Búsqueda OFF habilitada en /api/proxy/off (fallback Nginx en /api/openfoodfacts/)');
+
+// ── ARRANQUE ─────────────────────────────────────────────────
+initDB().then(() => {
+  app.listen(PORT, '0.0.0.0', () => console.log(`[Esítiron] port ${PORT}`));
+}).catch(e => { console.error('[Fatal]', e.message); process.exit(1); });

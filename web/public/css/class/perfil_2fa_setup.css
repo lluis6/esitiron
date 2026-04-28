@@ -1,0 +1,90 @@
+/* Contenedor principal */
+.setup-wrap {
+  max-width: 600px;
+  margin: 2rem auto;
+  padding: 0 1rem;
+}
+
+/* Tarjeta blanca/oscura */
+.setup-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 2rem;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+}
+
+/* Pasos (1, 2, 3) */
+.step {
+  display: flex;
+  gap: 1.25rem;
+  margin-bottom: 2rem;
+}
+.step:last-child {
+  margin-bottom: 0;
+}
+
+/* Círculo con el número */
+.step-num {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  background: var(--primary);
+  color: #ffffff;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+
+/* Cuerpo del paso */
+.step-body {
+  flex: 1;
+}
+.step-body p {
+  margin-top: 0;
+  margin-bottom: 0.75rem;
+  color: var(--text2);
+  line-height: 1.5;
+}
+
+/* Caja del código manual */
+.secret-box {
+  background: var(--bg-color);
+  border: 1px dashed var(--border);
+  padding: 1rem;
+  border-radius: 8px;
+  font-family: monospace;
+  font-size: 1.2rem;
+  letter-spacing: 0.1em;
+  text-align: center;
+  color: var(--text1);
+  font-weight: bold;
+}
+
+/* Formulario */
+.form-row {
+  margin-bottom: 1rem;
+}
+.form-row label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+  color: var(--text1);
+}
+.form-row input {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-color);
+  color: var(--text1);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.form-row input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.15);
+}

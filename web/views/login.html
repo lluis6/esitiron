@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Esítiron — Acceso</title>
+  <script src="/js/theme.js"></script>
+  <link rel="stylesheet" href="/css/main.css">
+  <link rel="icon" type="image/png" href="/img/logo.jpg">
+</head>
+<body class="login-page">
+
+<div class="login-wrap">
+  <!-- REQ 5: bloque .login-logo ELIMINADO -->
+
+  <div class="login-card">
+    {% if messages and messages.length > 0 %}
+    <div class="flashes">
+      {% for msg in messages %}
+      <div class="flash {{ msg[0] }}">{{ msg[1] }}</div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchTab('login', this)">Iniciar sesión</button>
+      <button class="tab-btn" onclick="switchTab('registro', this)">Registrarse</button>
+    </div>
+
+    <div id="panel-login" class="form-panel active">
+      <form method="POST" action="/login">
+        <input type="hidden" name="accion" value="login">
+        <div class="field"><label>Usuario</label><input type="text" name="username" placeholder="tu_usuario" required></div>
+        <div class="field"><label>Contraseña</label><input type="password" name="password" placeholder="••••••••" required></div>
+        <button type="submit" class="btn-submit">Entrar →</button>
+      </form>
+    </div>
+
+    <div id="panel-registro" class="form-panel">
+      <form method="POST" action="/login">
+        <input type="hidden" name="accion" value="registro">
+        <div class="field"><label>Usuario</label><input type="text" name="username" placeholder="tu_usuario" required minlength="3"></div>
+        <div class="field"><label>Email</label><input type="email" name="email" placeholder="tu@correo.com" required></div>
+        <div class="field"><label>Contraseña</label><input type="password" name="password" placeholder="mínimo 8 caracteres" required minlength="8"></div>
+        <button type="submit" class="btn-submit">Crear cuenta →</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="login-footer">Esítiron · ASIX 2025–2026 · Lluis Carbonell & Wei Xu</div>
+</div>
+
+<script>
+function switchTab(tab, btn) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.form-panel').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('panel-' + tab).classList.add('active');
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,310 @@
+services:
+
+  # ══════════════════════════════════════════════════════════════
+  #  RED PÚBLICA — Tailscale + Cloudflare + Nginx
+  # ══════════════════════════════════════════════════════════════
+
+  tailscale:
+    image: tailscale/tailscale:latest
+    container_name: tailscale
+    environment:
+      - TS_AUTHKEY=${TAILSCALE_AUTHKEY}
+      - TS_HOSTNAME=${TS_HOSTNAME:-mi-app-tickets}
+      - TS_STATE_DIR=/var/lib/tailscale
+    volumes:
+      - tailscale_state:/var/lib/tailscale
+      - ./tailscale/entrypoint.sh:/entrypoint-funnel.sh:ro
+      - /dev/net/tun:/dev/net/tun
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    entrypoint:  ["/bin/sh", "/entrypoint-funnel.sh"]
+    network_mode: "service:proxy"
+    depends_on:
+        proxy:
+          condition: service_started
+          restart: true
+    restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    command: tunnel run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    networks:
+      - red_publica
+    depends_on:
+      - proxy
+    restart: unless-stopped
+
+  proxy:
+    image: nginx:alpine
+    container_name: nginx_proxy
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "8080:80"
+    networks:
+      - red_publica
+      - red_monitoring
+    depends_on:
+      - web
+    restart: always
+
+  # ══════════════════════════════════════════════════════════════
+  #  NGINX EXPORTER — métricas stub_status de Nginx
+  # ══════════════════════════════════════════════════════════════
+  nginx-exporter:
+    image: nginx/nginx-prometheus-exporter:latest
+    container_name: nginx-exporter
+    command:
+      - "--nginx.scrape-uri=http://nginx_proxy/nginx_status"
+    networks:
+      - red_monitoring
+      - red_publica
+    depends_on:
+      - proxy
+    restart: unless-stopped
+
+  # ══════════════════════════════════════════════════════════════
+  #  APLICACIÓN
+  # ══════════════════════════════════════════════════════════════
+
+  web:
+    build: ./web
+    container_name: app_servidor
+    volumes:
+      - ./web:/app
+      - /app/node_modules
+    environment:
+      - DB_HOST=db
+      - DB_USER=${DB_USER:-user_seguro}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME:-tiquets_db}
+      - OCR_HOST=ocr
+      - NODE_ENV=${NODE_ENV:-production}
+      - SESSION_SECRET=${SESSION_SECRET:-SecretoFijoParaCifrado2FA_123}
+      - METRICS_PORT=9090
+    networks:
+      - red_publica
+      - red_interna
+      - red_procesamiento
+      - red_monitoring
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: on-failure
+    healthcheck:
+      test:  ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health', r => process.exit(r.statusCode === 200 ? 0 : 1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ocr:
+    build: ./ocr
+    container_name: ocr_ia
+    volumes:
+      - ./ocr:/app
+    env_file:
+      - ./.env
+    networks:
+      - red_procesamiento
+      - red_ia
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: on-failure
+
+  db:
+    image: mysql:8.0
+    container_name: db_mysql
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --skip-character-set-client-handshake
+    environment:
+      - MYSQL_ROOT_PASSWORD=${DB_ROOT_PASSWORD}
+      - MYSQL_DATABASE=${DB_NAME:-tiquets_db}
+      - MYSQL_USER=${DB_USER:-user_seguro}
+      - MYSQL_PASSWORD=${DB_PASSWORD}
+    networks:
+      - red_interna
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./db_base:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test:  ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  # ══════════════════════════════════════════════════════════════
+  #  EXPORTERS
+  # ══════════════════════════════════════════════════════════════
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node-exporter
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+      - /var/run/dbus/system_bus_socket:/var/run/dbus/system_bus_socket:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+      - '--collector.systemd' # arreglar para fix en mysql-exporter;; no tiene root = no podrá ver systemd
+      - '--collector.processes'
+    networks:
+      - red_monitoring
+    restart: unless-stopped
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: cadvisor
+    privileged: true
+    #comentar bloque command si se va a usar docker a nivel de sistema
+    command:
+     # - '--docker_only=true'
+      - '--docker=unix:///var/run/docker.sock'
+    volumes:
+      - /:/rootfs:ro
+      #- /var/run:/var/run:ro
+      - /dev/disk/:/dev/disk:ro
+      - /sys/fs/cgroup:/sys/fs/cgroup:ro
+      #- /sys:/sys:ro
+      #rutas para docker a nivel de usuario
+      - ${HOME}/.local/share/docker:/var/lib/docker:ro
+      - ${XDG_RUNTIME_DIR}/docker.sock:/var/run/docker.sock:ro
+      - ${XDG_RUNTIME_DIR}/docker/containerd/containerd.sock:/run/containerd/containerd.sock:ro
+      #rutas para docker a nivel de sistema
+      #- /var/lib/docker/:/var/lib/docker:ro
+      #- /dev/disk/:/dev/disk:ro
+
+    networks:
+      - red_monitoring
+    restart: unless-stopped
+
+  mysql-exporter:
+      image: prom/mysqld-exporter:v0.14.0
+      container_name: mysql-exporter
+      environment:
+        - DATA_SOURCE_NAME=${DB_USER}:${DB_PASSWORD}@(db:3306)/
+      command:
+        - "--no-collect.slave_status"
+        - "--collect.info_schema.innodb_metrics"
+        - "--collect.info_schema.processlist"
+      networks:
+        - red_interna
+        - red_monitoring
+      depends_on:
+        db:
+          condition: service_healthy
+      restart: unless-stopped
+
+  # ══════════════════════════════════════════════════════════════
+  #  MONITOREO — Prometheus + Grafana (SOLO RED INTERNA)
+  # ══════════════════════════════════════════════════════════════
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - red_monitoring
+    depends_on:
+      - node-exporter
+      - cadvisor
+      - mysql-exporter
+      - nginx-exporter
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GF_ADMIN_USER}
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_ADMIN_PASSWORD}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      # ⚠️ IMPORTANTE: Sin acceso desde fuera - URL interna
+      - GF_SERVER_ROOT_URL=http://grafana:3000/
+      - GF_SERVER_SERVE_FROM_SUB_PATH=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    networks:
+      - red_monitoring
+    depends_on:
+      - prometheus
+      - loki
+    restart: unless-stopped
+
+  # ══════════════════════════════════════════════════════════════
+  #  LOGS — Loki + Promtail (logs Docker)
+  # ══════════════════════════════════════════════════════════════
+
+  loki:
+    image: grafana/loki:3.1.1
+    container_name: loki
+    command: -config.file=/etc/loki/config.yml
+    volumes:
+      - ./monitoring/loki/config.yml:/etc/loki/config.yml:ro
+      - loki_data:/loki
+    networks:
+      - red_monitoring
+    restart: unless-stopped
+
+  promtail:
+    image: grafana/promtail:3.1.1
+    container_name: promtail
+    command: -config.file=/etc/promtail/config.yml
+    volumes:
+      - ./monitoring/promtail/config.yml:/etc/promtail/config.yml:ro
+      - promtail_data:/tmp
+
+      #comandos a nivel docker sistema      
+      #- /var/lib/docker/containers:/var/lib/docker/containers:ro
+      # /var/run/docker-sock:/var/run/docker.sock:ro
+
+      #docker a nivel usuario
+      - ${HOME}/.local/share/docker/containers:/var/lib/docker/containers:ro
+      - ${XDG_RUNTIME_DIR}/docker.sock:/var/run/docker.sock:ro
+      - ${XDG_RUNTIME_DIR}/docker/containerd/containerd.sock:/run/containerd/containerd.sock:ro
+    networks:
+      - red_monitoring
+    depends_on:
+      - loki
+    restart: unless-stopped
+
+# ══════════════════════════════════════════════════════════════
+#  REDES Y VOLÚMENES
+# ══════════════════════════════════════════════════════════════
+networks:
+  red_publica:
+  red_interna:
+    internal: true
+  red_procesamiento:
+    internal: true
+  red_ia:
+    driver: bridge
+  red_monitoring:
+
+volumes:
+  mysql_data:
+  tailscale_state:
+  prometheus_data:
+  grafana_data:
+  loki_data:
+  promtail_data:

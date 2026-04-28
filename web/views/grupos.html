@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Esítiron — Mis Grupos</title>
+  <script src="/js/theme.js"></script>
+  <link rel="stylesheet" href="/css/main.css">
+  <link rel="stylesheet" href="/css/class/grupos.css">
+  <link rel="icon" type="image/png" href="/img/logo.jpg">
+</head>
+<body>
+
+<div class="toast" id="toast"></div>
+
+<div class="modal-overlay" id="modalCrear" onclick="cerrarModal(event)">
+  <div class="modal-card" onclick="event.stopPropagation()">
+    <div class="modal-title">👥 Crear nuevo grupo</div>
+
+    <div class="form-field">
+      <label>Nombre del grupo *</label>
+      <input type="text" id="inputNombre" placeholder="Ej: Compra familiar, Piso 3º..." maxlength="100">
+    </div>
+    <div class="form-field">
+      <label>Descripción (opcional)</label>
+      <textarea id="inputDesc" placeholder="Para qué es este grupo..."></textarea>
+    </div>
+
+    <div class="modal-btns">
+      <button class="btn btn-ghost" type="button" onclick="cerrarModalCrear()">Cancelar</button>
+      <button class="btn btn-primary" type="button" onclick="crearGrupo()">Crear grupo →</button>
+    </div>
+  </div>
+</div>
+
+<div class="panel-overlay" id="panelOverlay" onclick="cerrarPanel()"></div>
+<div class="panel-lateral" id="panelGrupo">
+  <div class="pl-header">
+    <div>
+      <div class="pl-titulo" id="plTitulo">Grupo</div>
+      <div class="pl-subtitulo" id="plSubtitulo">...</div>
+    </div>
+    <button class="pl-close" onclick="cerrarPanel()">✕</button>
+  </div>
+  <div class="pl-body" id="plBody">
+    <div class="pl-loading">Cargando...</div>
+  </div>
+</div>
+
+<nav class="navbar">
+  <div class="nav-links">
+    <a href="/dashboard" class="nav-link">📊 Dashboard</a>
+    <a href="/tiquets"   class="nav-link">🧾 Tiquets</a>
+    <a href="/productos" class="nav-link">🛍️ Productos</a>
+    <a href="/grupos"    class="nav-link active">👥 Grupos</a>
+  </div>
+  <div class="nav-right">
+    <div class="user-menu-wrap" id="userMenuWrap">
+      <div class="nav-user" id="userTrigger" onclick="toggleMenu()">
+        {% if avatar_url %}
+          <img src="{{ avatar_url }}" class="avatar" style="object-fit:cover;" alt="avatar">
+        {% else %}
+          <div class="avatar">{{ usuario[0] | upper }}</div>
+        {% endif %}
+        <span class="nav-username">{{ usuario }}</span>
+      </div>
+      <div class="user-dropdown" id="userDropdown">
+        <div class="ud-header">
+          <div class="ud-name">{{ usuario }}</div>
+          <div class="ud-email">{{ usuario_email }}</div>
+        </div>
+        <a href="/perfil" class="ud-item">👤 Mi perfil</a>
+        <div class="ud-divider"></div>
+        <a href="/logout" class="ud-item danger">⏻ Cerrar sesión</a>
+      </div>
+    </div>
+    <button class="theme-toggle" id="theme-toggle" title="Cambiar tema">
+      <span id="icon-sun">☀️</span>
+      <span id="icon-moon" style="display:none">🌙</span>
+    </button>
+  </div>
+</nav>
+
+<main class="main">
+  <div class="page-header">
+    <h1 class="page-title">Mis grupos 👥</h1>
+    <p class="page-subtitle">Colabora y comparte tiquets con otras personas</p>
+  </div>
+
+  {% if messages and messages.length > 0 %}
+  <div class="flashes">
+    {% for msg in messages %}
+    <div class="flash {{ msg[0] }}">{{ msg[1] }}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if invitaciones and invitaciones.length > 0 %}
+  <div style="margin-bottom: 1.5rem;">
+    <div class="section-header">
+      <h2>📬 Invitaciones pendientes
+        <span class="badge" style="margin-left:0.5rem;background:rgba(251,191,36,0.15);color:var(--yellow);border-color:rgba(251,191,36,0.3);">
+          {{ invitaciones | length }}
+        </span>
+      </h2>
+    </div>
+    <!-- Invitaciones -->
+    <div id="invitacionesList">
+      {% for inv in invitaciones %}
+      <div class="inv-card" id="inv-{{ inv.id }}">
+        <div style="font-size: 1.5rem;">📩</div>
+        <div class="inv-info">
+          <div class="inv-titulo">{{ inv.grupo_nombre }}</div>
+          <div class="inv-sub">Invitado por <strong>{{ inv.invitador }}</strong></div>
+        </div>
+        <div class="inv-btns">
+          <button
+            class="btn-inv-aceptar"
+            data-inv-id="{{ inv.id }}"
+            onclick="responderInvDesdeBtn(this, 'aceptar')">✓ Aceptar</button>
+          <button
+            class="btn-inv-rechazar"
+            data-inv-id="{{ inv.id }}"
+            onclick="responderInvDesdeBtn(this, 'rechazar')">✕ Rechazar</button>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="section-header">
+    <h2>🏠 Mis grupos</h2>
+    <button class="btn-crear-grupo" data-action="abrir-modal-crear">
+      ＋ Crear grupo
+    </button>
+  </div>
+
+  {% if grupos and grupos.length > 0 %}
+  <!-- Tarjetas de grupo -->
+  <div class="grupos-grid" id="gruposGrid">
+    {% for g in grupos %}
+    <div
+      class="grupo-card"
+      data-id="{{ g.id }}"
+      onclick="abrirGrupoDesdeCard(this)">
+      <div class="grupo-card-header">
+        <div class="grupo-icon">
+          {% if g.rol == 'admin' %}👑{% else %}👥{% endif %}
+        </div>
+        <div style="flex:1;">
+          <div class="grupo-nombre">{{ g.nombre }}</div>
+          <span class="rol-badge {{ g.rol }}">{{ g.rol }}</span>
+        </div>
+      </div>
+      {% if g.descripcion %}
+      <div class="grupo-desc">{{ g.descripcion }}</div>
+      {% endif %}
+      <div class="grupo-stats">
+        <div class="grupo-stat">
+          <span>👤</span>
+          <span class="num">{{ g.total_miembros }}</span>
+          <span>miembro{{ 's' if g.total_miembros != 1 else '' }}</span>
+        </div>
+        <div class="grupo-stat">
+          <span>🧾</span>
+          <span class="num">{{ g.total_tiquets }}</span>
+          <span>tiquet{{ 's' if g.total_tiquets != 1 else '' }}</span>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="grupos-empty" id="gruposEmpty">
+    <span class="grupos-empty-icon">🤝</span>
+    <h3>Sin grupos todavía</h3>
+    <p>Crea un grupo e invita a tus compañeros de piso, familia o amigos<br>para compartir y analizar gastos juntos.</p>
+    <button class="btn-crear-grupo" data-action="abrir-modal-crear">＋ Crear mi primer grupo</button>
+  </div>
+  {% endif %}
+</main>
+
+<script>
+const MI_USUARIO_ID = Number('{{ usuario_id }}') || 0;
+
+// ── Menú usuario ──────────────────────────────────────────────
+function toggleMenu() { document.getElementById('userDropdown').classList.toggle('open'); }
+document.addEventListener('click', e => {
+  const w = document.getElementById('userMenuWrap');
+  if (w && !w.contains(e.target)) document.getElementById('userDropdown').classList.remove('open');
+});
+
+// ── Toast ────────────────────────────────────────────────────
+function showToast(msg, tipo = 'success') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = `toast ${tipo} visible`;
+  setTimeout(() => t.classList.remove('visible'), 3000);
+}
+
+// ── Modal crear grupo ─────────────────────────────────────────
+function abrirModalCrear() {
+  document.getElementById('modalCrear').classList.add('open');
+  setTimeout(() => document.getElementById('inputNombre').focus(), 200);
+}
+function cerrarModalCrear() {
+  document.getElementById('modalCrear').classList.remove('open');
+  document.getElementById('inputNombre').value = '';
+  document.getElementById('inputDesc').value = '';
+}
+function cerrarModal(e) {
+  if (e.target === e.currentTarget) cerrarModalCrear();
+}
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    cerrarModalCrear();
+    cerrarPanel();
+  }
+});
+
+async function crearGrupo() {
+  const nombre = document.getElementById('inputNombre').value.trim();
+  const desc   = document.getElementById('inputDesc').value.trim();
+  if (!nombre || nombre.length < 2) {
+    showToast('El nombre debe tener al menos 2 caracteres', 'error');
+    return;
+  }
+  try {
+    const res  = await fetch('/api/grupos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nombre, descripcion: desc }),
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      showToast('✅ Grupo creado correctamente');
+      cerrarModalCrear();
+      setTimeout(() => location.reload(), 800);
+      showToast(data.error || 'Error al crear el grupo', 'error');
+    }
+  } catch (e) {
+    showToast('Error de conexión', 'error');
+  }
+}
+
+// ── Panel detalle grupo ───────────────────────────────────────
+let grupoActualId = null;
+let miRolActual   = null;
+
+function cerrarPanel() {
+  document.getElementById('panelGrupo').classList.remove('open');
+  document.getElementById('panelOverlay').classList.remove('open');
+  grupoActualId = null;
+}
+
+async function abrirGrupo(id, nombre) {
+  grupoActualId = id;
+  document.getElementById('plTitulo').textContent = nombre;
+  document.getElementById('plSubtitulo').textContent = 'Cargando...';
+  document.getElementById('plBody').innerHTML = '<div class="pl-loading">⏳ Cargando grupo...</div>';
+  document.getElementById('panelGrupo').classList.add('open');
+  document.getElementById('panelOverlay').classList.add('open');
+
+  try {
+    const [resGrupo, resTiquets] = await Promise.all([
+      fetch(`/api/grupos/${id}`),
+      fetch(`/api/grupos/${id}/tiquets`),
+    ]);
+    const grupo   = await resGrupo.json();
+    const tiquets = await resTiquets.json();
+
+    if (!resGrupo.ok) {
+      document.getElementById('plBody').innerHTML =
+        `<div class="pl-loading" style="color:var(--red);">${grupo.error}</div>`;
+      return;
+    }
+
+    miRolActual = grupo.miRol;
+    document.getElementById('plSubtitulo').textContent =
+      `${grupo.miembros.length} miembro${grupo.miembros.length !== 1 ? 's' : ''} · Creado ${new Date(grupo.creado_en).toLocaleDateString('es-ES')}`;
+
+    let html = '';
+
+    html += `<div class="grupo-tools">
+      <a href="/grupos/${id}/productos" class="btn-ver-productos-grupo"
+         style="display:inline-flex;align-items:center;gap:.45rem;padding:.58rem .9rem;border:1px solid var(--accent);border-radius:var(--radius-sm);background:var(--accent-lt);color:var(--accent);font-weight:700;font-size:.84rem;line-height:1;box-shadow:0 0 0 1px rgba(16,185,129,.12) inset;">
+         🛍️ Ver todos los productos del grupo
+      </a>
+    </div>`;
+
+    // ── Miembros ──────────────────────────────────────────────
+    html += `<div class="pl-section-title">👤 Miembros</div>`;
+    grupo.miembros.forEach(m => {
+      html += `<div class="miembro-item">
+        <div class="miembro-avatar">${m.username[0].toUpperCase()}</div>
+        <div class="miembro-name">${escHtml(m.username)}</div>
+        <span class="rol-badge ${m.rol}">${m.rol}</span>
+        ${m.id !== grupo.creador_id && miRolActual === 'admin'
+          ? `<button onclick="expulsarMiembro(${id}, ${m.id})" style="margin-left:0.5rem;padding:3px 8px;font-size:0.72rem;border:1px solid var(--border);border-radius:var(--radius-xs);background:transparent;color:var(--text3);cursor:pointer;" title="Expulsar">✕</button>`
+          : ''}
+      </div>`;
+    });
+
+    // ── Invitar ───────────────────────────────────────────────
+    html += `<div class="invite-wrap">
+      <div class="pl-section-title" style="margin-top:1.25rem;">📨 Invitar persona</div>
+      <input type="text" id="inviteSearch" class="invite-search" placeholder="Buscar por username..."
+             oninput="buscarUsuarios(this.value)">
+      <div class="invite-results" id="inviteResults"></div>
+    </div>`;
+
+    // ── Tiquets del grupo ────────────────────────────────────
+    html += `<div style="margin-top:1.5rem;">
+      <div class="pl-section-title">🧾 Tiquets compartidos (${tiquets.length})</div>`;
+
+    if (tiquets.length === 0) {
+      html += `<p style="font-size:0.82rem;color:var(--text3);padding:0.75rem 0;">Ningún tiquet compartido todavía.</p>`;
+    } else {
+      tiquets.forEach(t => {
+        const fecha = new Date(t.fecha_compra).toLocaleDateString('es-ES');
+        const puedeEliminar = (miRolActual === 'admin') || (Number(t.propietario_id) === Number(MI_USUARIO_ID));
+        html += `<div class="tiquet-panel-row">
+          <a href="/tiquet/${t.uuid}" class="tiquet-panel-item">
+            <div style="flex:1;">
+              <div style="font-weight:600;font-size:0.875rem;">${escHtml(t.supermercado)}</div>
+              <div class="tiquet-by">por ${escHtml(t.propietario)} · ${fecha}</div>
+            </div>
+            <div style="font-weight:700;color:var(--accent);font-size:0.875rem;">${parseFloat(t.total_tiquet).toFixed(2)} €</div>
+          </a>
+          ${puedeEliminar
+            ? `<button type="button" title="Eliminar tiquet"
+                 onclick="eliminarTiquetGrupo('${escHtml(t.uuid)}', '${escHtml(t.supermercado)}')"
+                 style="margin-left:0.5rem;padding:3px 8px;font-size:0.72rem;border:1px solid var(--border);border-radius:var(--radius-xs);background:transparent;color:var(--text3);cursor:pointer;"
+                 onmouseover="this.style.background='var(--hover)'" onmouseout="this.style.background='transparent'">✕</button>`
+            : ''}
+        </div>`;
+      });
+    }
+    html += `</div>`;
+
+    // ── Botón eliminar (solo admin/creador) ───────────────────
+    if (miRolActual === 'admin') {
+      html += `<div style="margin-top:2rem;padding-top:1rem;border-top:1px solid var(--border);">
+        <button onclick="eliminarGrupo(${id})"
+                style="padding:0.5rem 1rem;border:1px solid var(--red);border-radius:var(--radius-xs);background:transparent;color:var(--red);font-size:0.8rem;font-weight:600;cursor:pointer;transition:all 0.2s;"
+                onmouseover="this.style.background='var(--red-lt)'" onmouseout="this.style.background='transparent'">
+          🗑️ Eliminar grupo
+        </button>
+        <button onclick="salirGrupo(${id})"
+          style="margin-left:0.5rem;padding:0.5rem 1rem;border:1px solid var(--border);border-radius:var(--radius-xs);background:transparent;color:var(--text2);font-size:0.8rem;font-weight:600;cursor:pointer;">
+          🚪 Salir del grupo
+        </button>
+      </div>`;
+    } else {
+      html += `<div style="margin-top:2rem;padding-top:1rem;border-top:1px solid var(--border);">
+        <button onclick="salirGrupo(${id})"
+          style="padding:0.5rem 1rem;border:1px solid var(--border);border-radius:var(--radius-xs);background:transparent;color:var(--text2);font-size:0.8rem;font-weight:600;cursor:pointer;">
+          🚪 Salir del grupo
+        </button>
+      </div>`;
+    }
+
+    document.getElementById('plBody').innerHTML = html;
+    // Ya existe oninput en el HTML del input; evitar listener duplicado.
+  } catch (e) {
+    document.getElementById('plBody').innerHTML =
+      `<div class="pl-loading" style="color:var(--red);">Error cargando el grupo.</div>`;
+  }
+}
+
+// ── Búsqueda de usuarios para invitar ────────────────────────
+let invTimer = null;
+async function buscarUsuarios(q) {
+  clearTimeout(invTimer);
+  const res = document.getElementById('inviteResults');
+  if (!q || q.length < 2) { res.innerHTML = ''; return; }
+
+  invTimer = setTimeout(async () => {
+    try {
+      const r    = await fetch(`/api/usuarios/buscar?q=${encodeURIComponent(q)}`);
+      const data = await r.json();
+      if (!data.length) {
+        res.innerHTML = `<p style="font-size:0.8rem;color:var(--text3);padding:0.5rem 0;">Sin resultados.</p>`;
+        return;
+      }
+      res.innerHTML = data.map(u => `
+        <div class="invite-user-item" data-user-id="${u.id}" data-username="${escHtml(u.username)}">
+          <div class="miembro-avatar" style="width:28px;height:28px;font-size:0.65rem;">${u.username[0].toUpperCase()}</div>
+          <span class="invite-user-name">${escHtml(u.username)}</span>
+          <span style="font-size:0.75rem;color:var(--accent);">Invitar →</span>
+        </div>`
+      ).join('');
+    } catch (e) { res.innerHTML = ''; }
+  }, 300);
+}
+
+// Delegación para items dinámicos de invitación
+document.addEventListener('click', function (e) {
+  var item = e.target.closest('.invite-user-item');
+  if (!item) return;
+
+  var userId = parseInt(item.getAttribute('data-user-id'), 10);
+  var username = item.getAttribute('data-username') || '';
+  if (!userId) return;
+
+  invitarUsuario(userId, username);
+});
+
+async function invitarUsuario(userId, username) {
+  if (!grupoActualId) return;
+  try {
+    const res = await fetch(`/api/grupos/${grupoActualId}/invitar`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ usuario_id: userId }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      showToast(`✅ Invitación enviada a ${username}`);
+      document.getElementById('inviteSearch').value = '';
+      document.getElementById('inviteResults').innerHTML = '';
+    } else {
+      showToast(data.error || 'Error al invitar', 'error');
+    }
+  } catch (e) {
+    showToast('Error de conexión', 'error');
+  }
+}
+
+// ── Responder invitaciones ────────────────────────────────────
+async function responderInv(id, accion, btn) {
+  btn.disabled = true;
+  try {
+    const res = await fetch(`/api/invitaciones/${id}/responder`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accion }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      const card = document.getElementById(`inv-${id}`);
+      if (!card) return;
+      card.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+      card.style.opacity = '0';
+      card.style.transform = 'translateX(20px)';
+      setTimeout(() => {
+        card.remove();
+        const lista = document.getElementById('invitacionesList');
+        if (!lista || lista.children.length === 0) {
+          const bloque = lista ? lista.closest('div') : null;
+          if (bloque) bloque.remove();
+        }
+        showToast(accion === 'aceptar' ? '🎉 ¡Te has unido al grupo!' : 'Invitación rechazada');
+        if (accion === 'aceptar') setTimeout(() => location.reload(), 800);
+      }, 300);
+    } else {
+      showToast(data.error || 'Error', 'error');
+      btn.disabled = false;
+    }
+  } catch (e) {
+    showToast('Error de conexión', 'error');
+    btn.disabled = false;
+  }
+}
+
+// ── Acciones de grupo ─────────────────────────────────────────
+async function eliminarGrupo(id) {
+  if (!confirm('¿Seguro que quieres eliminar este grupo? Se perderán todos los tiquets compartidos.')) return;
+  try {
+    const res = await fetch(`/api/grupos/${id}`, { method: 'DELETE' });
+    if (res.ok) {
+      showToast('Grupo eliminado');
+      cerrarPanel();
+      setTimeout(() => location.reload(), 800);
+    } else {
+      const d = await res.json();
+      showToast(d.error || 'Error', 'error');
+    }
+  } catch (e) {
+    showToast('Error de conexión', 'error');
+  }
+}
+
+async function salirGrupo(id) {
+  try {
+    const res = await fetch(`/api/grupos/${id}/miembros/me`, { method: 'DELETE' });
+    if (res.ok || res.status === 200) {
+      showToast('Has salido del grupo');
+      cerrarPanel();
+      setTimeout(() => location.reload(), 800);
+    } else {
+      window.location.href = `/grupos?success=Has+salido+del+grupo`;
+    }
+  } catch (e) {
+    showToast('Error', 'error');
+  }
+}
+
+async function expulsarMiembro(grupoId, userId) {
+  if (!confirm('¿Expulsar a este miembro del grupo?')) return;
+  try {
+    const res = await fetch(`/api/grupos/${grupoId}/miembros/${userId}`, { method: 'DELETE' });
+    if (res.ok) {
+      showToast('Miembro expulsado');
+      abrirGrupo(grupoId, document.getElementById('plTitulo').textContent);
+    } else {
+      const d = await res.json();
+      showToast(d.error || 'Error', 'error');
+    }
+  } catch (e) {
+    showToast('Error de conexión', 'error');
+  }
+}
+
+async function eliminarTiquetGrupo(tiquetUuid, supermercado) {
+  if (!grupoActualId || !tiquetUuid) return;
+
+  const nombre = supermercado ? ` de ${supermercado}` : '';
+  const ok = confirm(`¿Eliminar este tiquet${nombre}? Esta acción no se puede deshacer.`);
+  if (!ok) return;
+
+  try {
+    const res = await fetch(`/api/grupos/${grupoActualId}/tiquets/${encodeURIComponent(tiquetUuid)}`, {
+      method: 'DELETE'
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showToast(data.error || 'No se pudo eliminar el tiquet', 'error');
+      return;
+    }
+
+    showToast('🗑️ Tiquet eliminado');
+    abrirGrupo(grupoActualId, document.getElementById('plTitulo').textContent || 'Grupo');
+  } catch (e) {
+    showToast('Error de conexión', 'error');
+  }
+}
+
+// ── Helper escape HTML ────────────────────────────────────────
+function escHtml(str) {
+  return String(str || '')
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
+    .replace(/'/g,'&#39;');
+}
+
+// ── Funciones puente para eventos ─────────────────────────────
+function responderInvDesdeBtn(btn, accion) {
+  var id = parseInt(btn.getAttribute('data-inv-id'), 10);
+  if (!id) return;
+  responderInv(id, accion, btn);
+}
+
+function abrirGrupoDesdeCard(card) {
+  var id = parseInt(card.getAttribute('data-id'), 10);
+  var nombreNode = card.querySelector('.grupo-nombre');
+  var nombre = nombreNode ? nombreNode.textContent.trim() : '';
+  if (!id) return;
+  abrirGrupo(id, nombre);
+}
+
+document.addEventListener('click', function (e) {
+  var card = e.target.closest('.grupo-card');
+  if (card) {
+    abrirGrupoDesdeCard(card);
+    return;
+  }
+
+  var btn = e.target.closest('[data-action]');
+  if (!btn) return;
+
+  var action = btn.getAttribute('data-action');
+  if (action === 'abrir-modal-crear') abrirModalCrear();
+  if (action === 'cerrar-modal-crear') cerrarModalCrear();
+  if (action === 'crear-grupo') crearGrupo();
+});
+</script>
+</body>
+</html>

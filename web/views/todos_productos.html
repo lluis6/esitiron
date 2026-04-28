@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Esítiron — {{ 'Productos del grupo' if es_grupo else 'Mis productos' }}</title>
+  <script src="/js/theme.js"></script>
+  <link rel="stylesheet" href="/css/main.css">
+  <link rel="stylesheet" href="/css/class/todos_productos.css">
+  <link rel="icon" type="image/png" href="/img/logo.jpg">
+  <style>
+    .estado-pill { font-size:.75rem; padding:4px 8px; border-radius:20px; font-weight:700; }
+    .estado-pill.ok { background:rgba(16,185,129,.15); color:#059669; }
+    .estado-pill.pendiente { background:rgba(245,158,11,.15); color:#d97706; }
+  </style>
+</head>
+<body>
+
+<!-- Panel overlay compartido -->
+<div class="panel-overlay" id="panelOverlay" onclick="cerrarPanel()"></div>
+
+<!-- Panel de Vincular -->
+<div class="panel-lateral" id="panelVincular">
+  <div class="pl-header">
+    <div>
+      <div class="pl-titulo">🔗 Vincular producto</div>
+      <div class="pl-subtitulo" id="vpOriginalLabel">...</div>
+    </div>
+    <button class="pl-close" onclick="cerrarPanel()">✕</button>
+  </div>
+  <div class="vp-search-wrap">
+    <input type="text" id="vpSearchInput" class="vp-search" placeholder="Busca nombre o marca..." oninput="buscar(this.value)">
+  </div>
+  <div class="pl-body" id="vpResults">
+    <p style="text-align:center; color:var(--text3); padding-top:2rem;">Empieza a escribir para buscar...</p>
+  </div>
+</div>
+
+<!-- Panel de Precios (Objetivo 1) -->
+<div class="panel-lateral" id="panelPrecios">
+  <div class="pl-header">
+    <div>
+      <div class="pl-titulo">📈 Variabilidad de precios</div>
+      <div class="pl-subtitulo" id="precioProductoLabel">...</div>
+    </div>
+    <button class="pl-close" onclick="cerrarPanel()">✕</button>
+  </div>
+  <div class="pl-body" id="precioBody">
+    <div class="precio-loading">Cargando historial...</div>
+  </div>
+</div>
+
+<nav class="navbar">
+  <div class="nav-links">
+    <a href="/dashboard" class="nav-link">📊 Dashboard</a>
+    <a href="/tiquets"   class="nav-link">🧾 Tiquets</a>
+    <a href="/productos" class="nav-link {{ '' if es_grupo else 'active' }}">🛍️ Productos</a>
+    <a href="/grupos"    class="nav-link {{ 'active' if es_grupo else '' }}">👥 Grupos</a>
+  </div>
+  <div class="nav-right">
+    <div class="user-menu-wrap" id="userMenuWrap">
+      <div class="nav-user" id="userTrigger" onclick="toggleMenu()">
+        {% if avatar_url %}
+          <img src="{{ avatar_url }}" class="avatar" style="object-fit:cover;" alt="avatar">
+        {% else %}
+          <div class="avatar">{{ usuario[0] | upper }}</div>
+        {% endif %}
+        <span class="nav-username">{{ usuario }}</span>
+      </div>
+      <div class="user-dropdown" id="userDropdown">
+        <div class="ud-header">
+          <div class="ud-name">{{ usuario }}</div>
+          <div class="ud-email">{{ usuario_email }}</div>
+        </div>
+        <a href="/perfil" class="ud-item">👤 Mi perfil</a>
+        <div class="ud-divider"></div>
+        <a href="/logout" class="ud-item danger">⏻ Cerrar sesión</a>
+      </div>
+    </div>
+    <button class="theme-toggle" id="theme-toggle" title="Cambiar tema">
+      <span id="icon-sun">☀️</span>
+      <span id="icon-moon" style="display:none">🌙</span>
+    </button>
+  </div>
+</nav>
+
+<main class="main">
+  <div class="page-header">
+    <h1 class="page-title">{{ 'Productos del grupo 🛍️' if es_grupo else 'Mis productos 🛍️' }}</h1>
+    <p class="page-subtitle">
+      {{ 'Productos compartidos en ' ~ grupo.nombre if es_grupo else 'Gestiona y vincula los artículos extraídos de tus tiquets' }}
+    </p>
+    {% if es_grupo %}
+      <a href="/grupos" class="btn-clear-filters" style="margin-top:0.6rem; display:inline-flex;">← Volver a grupos</a>
+    {% endif %}
+  </div>
+
+  {% if messages and messages.length > 0 %}
+  <div class="flashes">
+    {% for msg in messages %}
+    <div class="flash {{ msg[0] }}">{{ msg[1] }}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <!-- ── FILTROS ──────────────────────────────────────────── -->
+  <div class="filtros-toolbar">
+    <form method="GET" action="{{ '/grupos/' ~ grupo.id ~ '/productos' if es_grupo else '/productos' }}" class="filtros-form">
+      <input type="text" id="searchProductos" class="search-input" placeholder="Buscar nombre o marca..." oninput="filtrarTabla()">
+
+      <select id="sortSelect" class="filter-select" onchange="ordenarTabla()">
+        <option value="fecha-desc">🗓️ Más recientes</option>
+        <option value="fecha-asc">🗓️ Más antiguos</option>
+        <option value="nombre-asc">🔤 Nombre (A-Z)</option>
+        <option value="precio-asc">💶 Precio (menor)</option>
+        <option value="precio-desc">💶 Precio (mayor)</option>
+      </select>
+
+      {% if tiendas and tiendas.length > 0 %}
+      <select name="supermercado" class="filter-select" onchange="this.form.submit()">
+        <option value="">Todas las tiendas</option>
+        {% for t in tiendas %}
+          <option value="{{ t }}" {{ 'selected' if filtro_supermercado == t else '' }}>{{ t }}</option>
+        {% endfor %}
+      </select>
+      {% endif %}
+
+      {% if paises and paises.length > 0 %}
+      <select name="pais" class="filter-select" onchange="this.form.submit()">
+        <option value="">Todos los países</option>
+        {% for p in paises %}
+          <option value="{{ p }}" {{ 'selected' if filtro_pais == p else '' }}>{{ p }}</option>
+        {% endfor %}
+      </select>
+      {% endif %}
+
+      {% if filtro_supermercado or filtro_pais %}
+      <a href="{{ '/grupos/' ~ grupo.id ~ '/productos' if es_grupo else '/productos' }}" class="btn-clear-filters">✕ Limpiar filtros</a>
+      {% endif %}
+    </form>
+  </div>
+
+  <div class="card table-container">
+    <table>
+      <thead>
+        <tr>
+          <th>Producto</th>
+          <th>Tienda</th>
+          <th>Precio</th>
+          <th>Estado</th>
+          <th>Acciones</th>
+        </tr>
+      </thead>
+      <tbody id="tbodyProductos">
+        {% for p in productos | unique('id_producto_maestro') %}
+        <tr class="producto-row"
+            data-index="{{ loop.index0 }}"
+            data-name="{{ p.producto | lower }} {{ p.marca | lower }} {{ p.nombre_original | lower }}"
+            data-sortname="{{ p.producto | lower }}"
+            data-precio="{{ p.precio }}">
+          <td>
+            <div style="display:flex; align-items:center; gap:10px;">
+              {% if p.foto_url %}
+                <img src="{{ p.foto_url }}" style="width:40px; height:40px; object-fit:contain; border-radius:6px; border:1px solid var(--border); background:white; flex-shrink:0;">
+              {% endif %}
+              <div>
+                <div style="font-weight:700; font-size:0.95rem; color:var(--text);">{{ p.producto }}</div>
+                {% if p.marca and p.marca != 'GENÉRICO' %}
+                  <small style="color:var(--text2); font-size:0.78rem;">{{ p.marca | lower | replace('genérico','') | trim }}</small>
+                {% endif %}
+                <br>
+                <small style="color:var(--text3); font-size:0.72rem;">{{ p.nombre_original }}</small>
+
+                {# ── OBJETIVO 3: Verificación colaborativa ── #}
+                {% if not es_grupo and p.verificacion %}
+                  <div style="margin-top:6px;">
+                    <span class="verif-badge {{ p.verificacion.estado }}">
+                      🤝 Verificación ({{ p.verificacion.votos_si }}✓ {{ p.verificacion.votos_no }}✗)
+                    </span>
+                    {% if not p.verificacion.mi_voto %}
+                      <span style="font-size:0.72rem; color:var(--text2); margin-left:4px;">¿Es correcto?</span>
+                      <button class="btn-voto si"
+                              title="Sí, es correcto"
+                              data-verif-id="{{ p.verificacion.id_verif }}"
+                              data-voto="si"
+                              onclick="votarDesdeBtn(this)">✓</button>
+                      <button class="btn-voto no"
+                              title="No, es incorrecto"
+                              data-verif-id="{{ p.verificacion.id_verif }}"
+                              data-voto="no"
+                              onclick="votarDesdeBtn(this)">✗</button>
+                    {% else %}
+                      <span class="voto-ya">Tu voto: {{ '✓ Sí' if p.verificacion.mi_voto == 'si' else '✗ No' }}</span>
+                    {% endif %}
+                  </div>
+                {% endif %}
+              </div>
+            </div>
+          </td>
+          <td style="font-weight:500; font-size:0.875rem;">
+            {{ p.tienda }}
+            {% if es_grupo and p.propietario %}
+              <span style="font-size:0.7rem; color:var(--text3); display:block;">Subido por {{ p.propietario }}</span>
+            {% endif %}
+            {% if p.pais and p.pais != 'España' %}
+            <span style="font-size:0.7rem; color:var(--text3); display:block;">{{ p.pais }}</span>
+            {% endif %}
+          </td>
+          <td style="font-weight:700; font-size:0.95rem;">{{ p.precio | format }} €</td>
+          <td>
+            <span class="estado-pill {{ 'ok' if p.curado else 'pendiente' }}">
+              {{ '✅ VINCULADO' if p.curado else '⚠️ PENDIENTE' }}
+            </span>
+          </td>
+          <td>
+            <div class="btn-acciones-wrap">
+              <button class="btn-accion btn-precios"
+                      data-id-producto="{{ p.id_producto_maestro }}"
+                      data-nombre="{{ p.producto | e }}"
+                      onclick="abrirPreciosDesdeBtn(this)">
+                📈 Precios
+              </button>
+              {% if not es_grupo %}
+              <button class="btn-accion"
+                      data-id-compra="{{ p.id_compra }}"
+                      data-original="{{ p.nombre_original | e }}"
+                      onclick="abrirVincularDesdeBtn(this)">
+                🔗 Vincular
+              </button>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="5" style="text-align:center; padding:2.5rem; color:var(--text3);">
+            {% if filtro_supermercado or filtro_pais %}
+              No hay productos que coincidan con estos filtros.<br>
+              <a href="{{ '/grupos/' ~ grupo.id ~ '/productos' if es_grupo else '/productos' }}" style="color:var(--accent); font-weight:bold; margin-top:10px; display:inline-block;">Quitar filtros</a>
+            {% else %}
+              No hay productos registrados todavía.
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</main>
+
+<script>
+// ── Menú usuario ─────────────────────────────────────────────
+function toggleMenu() { document.getElementById('userDropdown').classList.toggle('open'); }
+document.addEventListener('click', e => {
+  const w = document.getElementById('userMenuWrap');
+  if (w && !w.contains(e.target)) document.getElementById('userDropdown').classList.remove('open');
+});
+
+// ── Control de paneles ────────────────────────────────────────
+function cerrarPanel() {
+  document.getElementById('panelOverlay').classList.remove('open');
+  document.getElementById('panelVincular').classList.remove('open');
+  document.getElementById('panelPrecios').classList.remove('open');
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') cerrarPanel(); });
+
+// ── OBJETIVO 1: Panel de Precios ──────────────────────────────
+async function abrirPrecios(idProducto, nombre) {
+  document.getElementById('precioProductoLabel').textContent = nombre;
+  document.getElementById('precioBody').innerHTML = '<div class="precio-loading">⏳ Cargando historial de precios...</div>';
+  document.getElementById('panelOverlay').classList.add('open');
+  document.getElementById('panelPrecios').classList.add('open');
+
+  try {
+    const res  = await fetch(`/api/producto/${idProducto}/precios`);
+    const data = await res.json();
+
+    if (!data.stats || data.stats.length === 0) {
+      document.getElementById('precioBody').innerHTML =
+        '<div class="precio-no-data">📭 Sin historial de precios registrado todavía.<br>Este producto aparecerá aquí tras futuras compras.</div>';
+      return;
+    }
+
+    // Precio mínimo global (para badge "más barato")
+    const precioMinGlobal = Math.min(...data.stats.map(s => parseFloat(s.min)));
+
+    let html = '';
+
+    // Estadísticas globales
+    const allPrecios = data.stats.flatMap(s => s.historial.map(h => h.precio));
+    const globalMin = Math.min(...allPrecios).toFixed(2);
+    const globalMax = Math.max(...allPrecios).toFixed(2);
+    const globalAvg = (allPrecios.reduce((a,b) => a+b, 0) / allPrecios.length).toFixed(2);
+
+    html += `<div class="precio-stat-grid">
+      <div class="precio-stat-card"><div class="precio-stat-label">Mínimo histórico</div><div class="precio-stat-val min">${globalMin} €</div></div>
+      <div class="precio-stat-card"><div class="precio-stat-label">Promedio</div><div class="precio-stat-val">${globalAvg} €</div></div>
+      <div class="precio-stat-card"><div class="precio-stat-label">Máximo histórico</div><div class="precio-stat-val max">${globalMax} €</div></div>
+    </div>`;
+
+    // Desglose por supermercado (ordenado por promedio)
+    data.stats.forEach(s => {
+      const esMasBarato = parseFloat(s.avg) === precioMinGlobal;
+      html += `<div class="precio-super-block">
+        <div class="precio-super-name">
+          🏪 ${s.supermercado}
+          ${esMasBarato ? '<span class="super-badge-mejor">más barato</span>' : ''}
+        </div>
+        <div style="display:flex;gap:1.5rem;margin-bottom:0.75rem;font-size:0.82rem;">
+          <span>Min <strong style="color:#059669">${s.min} €</strong></span>
+          <span>Prom <strong>${s.avg} €</strong></span>
+          <span>Max <strong style="color:var(--red)">${s.max} €</strong></span>
+          <span style="color:var(--text3);">${s.historial.length} registro${s.historial.length !== 1 ? 's' : ''}</span>
+        </div>`;
+
+      // Últimos 5 registros
+      const ultimos = s.historial.slice(-5).reverse();
+      ultimos.forEach(h => {
+        const fecha = new Date(h.fecha).toLocaleDateString('es-ES', { day:'2-digit', month:'2-digit', year:'numeric' });
+        html += `<div class="precio-history-row">
+          <span class="precio-history-fecha">${fecha}</span>
+          <span class="precio-history-val">${h.precio.toFixed(2)} €</span>
+        </div>`;
+      });
+
+      html += '</div>';
+    });
+
+    document.getElementById('precioBody').innerHTML = html;
+  } catch(e) {
+    document.getElementById('precioBody').innerHTML =
+      '<div class="precio-no-data" style="color:var(--red);">Error al cargar los precios.</div>';
+  }
+}
+
+// ── Panel de Vincular ─────────────────────────────────────────
+let currentIdCompra = null;
+let buscarTimer = null;
+
+function abrirVincular(id, original) {
+  currentIdCompra = id;
+  document.getElementById('vpOriginalLabel').textContent = original;
+  document.getElementById('vpSearchInput').value = '';
+  document.getElementById('vpResults').innerHTML =
+    '<p style="text-align:center; color:var(--text3); padding-top:2rem;">Empieza a escribir para buscar...</p>';
+  document.getElementById('panelOverlay').classList.add('open');
+  document.getElementById('panelVincular').classList.add('open');
+  setTimeout(() => document.getElementById('vpSearchInput').focus(), 300);
+}
+
+function buscar(q) {
+  clearTimeout(buscarTimer);
+  if (q.length < 2) return;
+  buscarTimer = setTimeout(() => _doSearch(q), 300);
+}
+
+async function fetchJsonArray(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  return Array.isArray(data) ? data : [];
+}
+
+async function _doSearch(q) {
+  const resultsDiv = document.getElementById('vpResults');
+  resultsDiv.innerHTML = '<p style="text-align:center; padding:2rem; color:var(--text2);">🔍 Buscando...</p>';
+  try {
+    const [localResult, offResult] = await Promise.allSettled([
+      fetchJsonArray(`/api/maestros/buscar?q=${encodeURIComponent(q)}`),
+      fetchJsonArray(`/api/proxy/off?q=${encodeURIComponent(q)}`),
+    ]);
+    const localRes = localResult.status === 'fulfilled' ? localResult.value : [];
+    const offRes = offResult.status === 'fulfilled' ? offResult.value : [];
+    const offFailed = offResult.status === 'rejected';
+    resultsDiv.innerHTML = '';
+
+    if (localRes && localRes.length > 0) {
+      resultsDiv.insertAdjacentHTML('beforeend', '<div style="font-size:11px; font-weight:bold; color:var(--accent); padding:8px 0;">TU CATÁLOGO</div>');
+      localRes.forEach(p => resultsDiv.appendChild(createItem(p, false)));
+    }
+
+    if (offRes && offRes.length > 0) {
+      const uniques = offRes.filter(p => {
+        if (!p.codigo_barras) return true;
+        return !localRes.find(l => l.codigo_barras === p.codigo_barras);
+      });
+      if (uniques.length > 0) {
+        resultsDiv.insertAdjacentHTML('beforeend', '<div style="font-size:11px; font-weight:bold; color:var(--text3); padding:8px 0; margin-top:8px;">OPEN FOOD FACTS</div>');
+        uniques.forEach(p => resultsDiv.appendChild(createItem(p, true)));
+      }
+    }
+
+    if (offFailed) {
+      resultsDiv.insertAdjacentHTML('beforeend', '<p style="font-size:11px; color:var(--text3); padding:8px 0;">Open Food Facts no disponible temporalmente.</p>');
+    }
+
+    if ((!localRes || !localRes.length) && (!offRes || !offRes.length)) {
+      if (offFailed) {
+        resultsDiv.innerHTML = '<p style="text-align:center; padding:2rem; color:var(--text3);">No se pudo consultar Open Food Facts ahora.</p>';
+      } else {
+        resultsDiv.innerHTML = '<p style="text-align:center; padding:2rem; color:var(--text3);">Sin resultados.</p>';
+      }
+    }
+  } catch(e) {
+    resultsDiv.innerHTML = '<p style="text-align:center; color:var(--red);">Error de conexión.</p>';
+  }
+}
+
+const PLACEHOLDER = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 48 48'%3E%3Crect width='48' height='48' rx='8' fill='%23f3f4f6'/%3E%3Ctext x='50%25' y='54%25' dominant-baseline='middle' text-anchor='middle' font-size='22' font-family='sans-serif'%3E🛒%3C/text%3E%3C/svg%3E`;
+
+function createItem(p, isExternal) {
+  const div = document.createElement('div');
+  div.className = 'vp-item';
+  const nombre = (p.nombre || 'Sin nombre').substring(0, 55);
+  div.innerHTML = `
+    <img src="${PLACEHOLDER}" class="vp-img" alt="">
+    <div style="flex:1;min-width:0;">
+      <span class="vp-name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;">
+        ${nombre} ${isExternal ? '<span class="off-badge">OFF</span>' : '<span style="color:var(--accent)">✅</span>'}
+      </span>
+      <span class="vp-brand">${p.marca || '—'}</span>
+    </div>`;
+
+  const img = div.querySelector('img');
+  if (p.foto_url) {
+    const real = new Image();
+    real.onload  = () => { img.src = p.foto_url; };
+    real.src = p.foto_url;
+  }
+
+  div.onclick = () => vincular(p, isExternal);
+  return div;
+}
+
+async function vincular(p, isExternal) {
+  const body = { id_compra: currentIdCompra };
+  if (isExternal) body.producto_externo = p;
+  else body.id_producto_maestro = p.id;
+
+  const res = await fetch('/api/compras/vincular', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (res.ok) location.reload();
+  else alert('Error al vincular');
+}
+
+// ── OBJETIVO 3: Votar ─────────────────────────────────────────
+async function votar(idVerif, voto, btnEl) {
+  const fila   = btnEl.closest('div');
+  const botones = fila.querySelectorAll('.btn-voto');
+  botones.forEach(b => b.disabled = true);
+
+  try {
+    const res  = await fetch('/api/verificaciones/votar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id_verificacion: idVerif, voto }),
+    });
+    const data = await res.json();
+
+    if (res.ok) {
+      const badge = fila.querySelector('.verif-badge');
+      if (badge) badge.textContent = `🤝 Verificación (${data.votos_si}✓ ${data.votos_no}✗)`;
+      botones.forEach(b => b.style.display = 'none');
+      const pregunta = fila.querySelector('span[style*="¿Es correcto"]');
+      if (pregunta) pregunta.remove();
+      fila.insertAdjacentHTML('beforeend', `<span class="voto-ya">Tu voto: ${voto === 'si' ? '✓ Sí' : '✗ No'}</span>`);
+      if (data.estado === 'verificado') setTimeout(() => location.reload(), 1000);
+    } else {
+      botones.forEach(b => b.disabled = false);
+    }
+  } catch(e) {
+    botones.forEach(b => b.disabled = false);
+  }
+}
+
+// ── Ordenación y filtrado en cliente ─────────────────────────
+function ordenarTabla() {
+  const tbody = document.getElementById('tbodyProductos');
+  const rows  = Array.from(tbody.querySelectorAll('.producto-row'));
+  const crit  = document.getElementById('sortSelect').value;
+
+  rows.sort((a, b) => {
+    if      (crit === 'fecha-desc')  return parseInt(a.dataset.index) - parseInt(b.dataset.index);
+    else if (crit === 'fecha-asc')   return parseInt(b.dataset.index) - parseInt(a.dataset.index);
+    else if (crit === 'nombre-asc')  return a.dataset.sortname.localeCompare(b.dataset.sortname);
+    else if (crit === 'precio-asc')  return parseFloat(a.dataset.precio) - parseFloat(b.dataset.precio);
+    else if (crit === 'precio-desc') return parseFloat(b.dataset.precio) - parseFloat(a.dataset.precio);
+    return 0;
+  });
+
+  rows.forEach(row => tbody.appendChild(row));
+}
+
+function filtrarTabla() {
+  const q    = document.getElementById('searchProductos').value.toLowerCase().trim();
+  const rows = document.querySelectorAll('.producto-row');
+  let visible = 0;
+
+  rows.forEach(row => {
+    const match = row.getAttribute('data-name').includes(q);
+    row.style.display = match ? '' : 'none';
+    if (match) visible++;
+  });
+
+  const tbody  = document.getElementById('tbodyProductos');
+  let trVacia  = document.getElementById('trVacia');
+  if (visible === 0 && rows.length > 0) {
+    if (!trVacia) {
+      tbody.insertAdjacentHTML('beforeend', '<tr id="trVacia"><td colspan="5" style="text-align:center; padding:2.5rem; color:var(--text3);">No hay productos que coincidan.</td></tr>');
+    } else { trVacia.style.display = ''; }
+  } else if (trVacia) { trVacia.style.display = 'none'; }
+}
+
+// ── Wrappers para botones (onclick en HTML) ─────────────────
+function abrirPreciosDesdeBtn(btn) {
+  const idProducto = btn?.dataset?.idProducto;
+  const nombre = btn?.dataset?.nombre || 'Producto';
+  if (!idProducto) return;
+  abrirPrecios(idProducto, nombre);
+}
+
+function abrirVincularDesdeBtn(btn) {
+  const idCompra = btn?.dataset?.idCompra;
+  const original = btn?.dataset?.original || '';
+  if (!idCompra) return;
+  abrirVincular(idCompra, original);
+}
+
+function votarDesdeBtn(btn) {
+  const idVerif = btn?.dataset?.verifId;
+  const voto = btn?.dataset?.voto;
+  if (!idVerif || !voto) return;
+  votar(idVerif, voto, btn);
+}
+</script>
+</body>
+</html>

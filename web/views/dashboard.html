@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Esítiron — Dashboard</title>
+  <script src="/js/theme.js"></script>
+  <link rel="stylesheet" href="/css/main.css">
+  <link rel="stylesheet" href="/css/class/dashboard.css">
+  <link rel="icon" type="image/png" href="/img/logo.jpg">
+</head>
+<body>
+
+<!-- Loading overlay -->
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="loading-card">
+    <div class="loading-spinner"></div>
+    <div class="loading-title">Analizando tiquet...</div>
+    <div class="loading-sub">Por favor, espera un momento.<br>La IA está procesando tu imagen.</div>
+    <div class="loading-steps">
+      <div class="loading-step active" id="step1"><span class="dot"></span> Enviando archivo</div>
+      <div class="loading-step" id="step2"><span class="dot"></span> Analizando con IA</div>
+      <div class="loading-step" id="step3"><span class="dot"></span> Extrayendo productos</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ REQ 2: NAVBAR con enlace a /tiquets ══════════════════════ -->
+<nav class="navbar">
+  <div class="nav-links">
+    <!-- REQ 2: Dashboard + Tiquets en la barra principal -->
+    <a href="/dashboard" class="nav-link active">📊 Dashboard</a>
+    <a href="/tiquets"   class="nav-link">🧾 Tiquets</a>
+    <a href="/productos" class="nav-link">🛍️ Productos</a>
+    <a href="/grupos"    class="nav-link">👥 Grupos</a>
+  </div>
+  <div class="nav-right">
+    <div class="user-menu-wrap" id="userMenuWrap">
+      <div class="nav-user" id="userTrigger" onclick="toggleMenu()">
+        {% if avatar_url %}
+          <img src="{{ avatar_url }}" class="avatar" style="object-fit:cover;" alt="avatar">
+        {% else %}
+          <div class="avatar">{{ usuario[0] | upper }}</div>
+        {% endif %}
+        <span class="nav-username">{{ usuario }}</span>
+      </div>
+      <div class="user-dropdown" id="userDropdown">
+        <div class="ud-header">
+          <div class="ud-name">{{ usuario }}</div>
+          <div class="ud-email">{{ usuario_email }}</div>
+        </div>
+        <a href="/perfil" class="ud-item">👤 Mi perfil</a>
+        <div class="ud-divider"></div>
+        <a href="/logout" class="ud-item danger">⏻ Cerrar sesión</a>
+      </div>
+    </div>
+    <button class="theme-toggle" id="theme-toggle" title="Cambiar tema">
+      <span id="icon-sun">☀️</span>
+      <span id="icon-moon" style="display:none">🌙</span>
+    </button>
+  </div>
+</nav>
+
+<main class="main">
+  <div class="page-header">
+    <h1 class="page-title">Hola, {{ usuario }} 👋</h1>
+    <p class="page-subtitle">Gestiona y controla tus gastos de compra</p>
+  </div>
+
+  {% if messages and messages.length > 0 %}
+  <div class="flashes">
+    {% for msg in messages %}
+    <div class="flash {{ msg[0] }}">{{ msg[1] }}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <!-- KPIs con filtro de período -->
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;flex-wrap:wrap;gap:0.5rem;">
+    <span style="font-size:0.8rem;font-weight:600;color:var(--text2);">📅 Período</span>
+    <div class="period-filter">
+      <button class="period-btn" data-period="semana">Semana</button>
+      <button class="period-btn" data-period="mes">Mes</button>
+      <button class="period-btn" data-period="anyo">Año</button>
+      <button class="period-btn active" data-period="total">Todo</button>
+    </div>
+  </div>
+
+  <div class="dashboard-container">
+    <div class="stat-card">
+      <div class="stat-label">Gasto Total</div>
+      <div class="stat-value green stat-dyn" id="val-gasto">{{ totales.total }} €</div>
+      <div class="stat-sub stat-dyn" id="sub-gasto">Histórico completo</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Tiquets Registrados</div>
+      <div class="stat-value stat-dyn" id="val-tiquets">{{ totales.n_total }}</div>
+      <div class="stat-sub stat-dyn" id="sub-tiquets">Histórico completo</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Promedio por Tiquet</div>
+      <div class="stat-value stat-dyn" id="val-avg">{{ totales.avg_total }} €</div>
+      <div class="stat-sub stat-dyn" id="sub-avg">Histórico completo</div>
+    </div>
+  </div>
+
+  <!-- Zona de carga -->
+  <div class="card" style="margin-bottom:1.5rem;">
+    <form method="POST" action="/subir_tiquet" enctype="multipart/form-data" id="uploadForm">
+      <label for="fotoTiquet" class="upload-section" id="dropZone">
+        <span class="drop-icon" id="dropIcon">📸</span>
+        <h3 id="dropTitle">Subir nuevo tiquet</h3>
+        <p id="dropSubtitle">Arrastra una imagen o PDF aquí, o haz clic para seleccionar</p>
+        <p style="font-size:0.75rem;color:var(--text3);margin-top:0.25rem;">JPG · PNG · WEBP · PDF — Máx. 15 MB</p>
+        <input type="file" id="fotoTiquet" name="foto_tiquet" class="upload-input"
+               accept="image/*,application/pdf" onchange="iniciarAnalisis()">
+      </label>
+    </form>
+  </div>
+
+  <!-- ══ REQ 1 + REQ 4: Últimos 5 tiquets ════════════════════════ -->
+  <div class="card" style="overflow:hidden;">
+    <div class="historial-header">
+      <h2>
+        📋 Últimos tiquets
+        {% if totalTiquets > 5 %}
+        <span class="historial-badge-total">{{ totalTiquets }} en total</span>
+        {% endif %}
+      </h2>
+    </div>
+
+    {% if historial and historial.length > 0 %}
+      {% for tiquet in historial %}
+      <!--
+        REQ 4: clic en cualquier parte de la fila → detalle del tiquet.
+        Usamos <a> de bloque para que toda la fila sea clicable.
+      -->
+	<a href="/tiquet/{{ tiquet.uuid }}" class="tiquet-item">
+        <div class="tiquet-dot"></div>
+        <div class="tiquet-info">
+          <div class="tiquet-tienda">{{ tiquet.supermercado }}</div>
+          <div class="tiquet-fecha">{{ tiquet.fecha_compra | formatDate }}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:0.75rem;">
+          <span style="font-size:0.75rem;color:var(--text3);">{{ tiquet.total_articulos }} art.</span>
+          <div class="tiquet-total">{{ tiquet.total_tiquet | format }} €</div>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" stroke-width="2.5"
+               stroke-linecap="round" stroke-linejoin="round"
+               style="color:var(--text3);flex-shrink:0;">
+            <polyline points="9 18 15 12 9 6"/>
+          </svg>
+        </div>
+      </a>
+      {% endfor %}
+
+      <!--
+        REQ 1: Botón "Ver todos" — solo si hay más de 5 tiquets.
+        Si hay exactamente 5 o menos no hace falta el enlace.
+      -->
+      {% if totalTiquets > 5 %}
+      <div class="ver-todos-wrap">
+        <a href="/tiquets" class="btn-ver-todos">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/>
+            <rect x="9" y="3" width="6" height="4" rx="1" ry="1"/>
+            <line x1="9" y1="12" x2="15" y2="12"/>
+            <line x1="9" y1="16" x2="13" y2="16"/>
+          </svg>
+          Ver todos los tiquets
+          <span style="background:var(--accent);color:#fff;border-radius:20px;
+                       padding:0.1rem 0.55rem;font-size:0.72rem;font-weight:800;">
+            {{ totalTiquets }}
+          </span>
+        </a>
+      </div>
+      {% endif %}
+
+    {% else %}
+      <div class="empty-state">
+        <span class="empty-icon">📭</span>
+        <h3>Sin tiquets aún</h3>
+        <p class="empty-text">Sube tu primer tiquet para empezar</p>
+      </div>
+    {% endif %}
+  </div>
+</main>
+
+<script>
+// ── Período ────────────────────────────────────────────────────
+const TOTALES = {
+  gasto:  { semana:'{{ totales.semana }}', mes:'{{ totales.mes }}', anyo:'{{ totales.anyo }}', total:'{{ totales.total }}' },
+  tiquets:{ semana:'{{ totales.n_semana }}', mes:'{{ totales.n_mes }}', anyo:'{{ totales.n_anyo }}', total:'{{ totales.n_total }}' },
+  avg:    { semana:'{{ totales.avg_semana }}', mes:'{{ totales.avg_mes }}', anyo:'{{ totales.avg_anyo }}', total:'{{ totales.avg_total }}' },
+};
+const LABELS = { semana:'Esta semana', mes:'Este mes', anyo:'Este año', total:'Histórico completo' };
+
+function actualizarPeriodo(period) {
+  [
+    { val:'val-gasto',   sub:'sub-gasto',   key:'gasto',   suffix:' €' },
+    { val:'val-tiquets', sub:'sub-tiquets', key:'tiquets', suffix:'' },
+    { val:'val-avg',     sub:'sub-avg',     key:'avg',     suffix:' €' },
+  ].forEach(({ val, sub, key, suffix }) => {
+    const elVal = document.getElementById(val);
+    const elSub = document.getElementById(sub);
+    elVal.classList.add('updating'); elSub.classList.add('updating');
+    setTimeout(() => {
+      elVal.textContent = TOTALES[key][period] + suffix;
+      elSub.textContent = LABELS[period];
+      elVal.classList.remove('updating'); elSub.classList.remove('updating');
+    }, 200);
+  });
+}
+document.querySelectorAll('.period-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    actualizarPeriodo(btn.dataset.period);
+  });
+});
+
+// ── Menú usuario ───────────────────────────────────────────────
+function toggleMenu() { document.getElementById('userDropdown').classList.toggle('open'); }
+document.addEventListener('click', e => {
+  const w = document.getElementById('userMenuWrap');
+  if (w && !w.contains(e.target)) document.getElementById('userDropdown').classList.remove('open');
+});
+
+// ── Drag & Drop ────────────────────────────────────────────────
+const dropZone  = document.getElementById('dropZone');
+const fileInput = document.getElementById('fotoTiquet');
+
+['dragenter','dragover'].forEach(ev => {
+  dropZone.addEventListener(ev, e => {
+    e.preventDefault(); dropZone.classList.add('drag-over');
+    document.getElementById('dropIcon').textContent     = '⬇️';
+    document.getElementById('dropTitle').textContent    = 'Suelta el archivo aquí';
+    document.getElementById('dropSubtitle').textContent = 'Imagen o PDF listo para analizar';
+  });
+});
+['dragleave','dragend'].forEach(ev => {
+  dropZone.addEventListener(ev, e => { if (!dropZone.contains(e.relatedTarget)) resetDropZone(); });
+});
+dropZone.addEventListener('drop', e => {
+  e.preventDefault(); resetDropZone();
+  const file = e.dataTransfer?.files?.[0];
+  if (!file) return;
+  const ALLOWED = ['image/jpeg','image/png','image/webp','image/gif','application/pdf'];
+  if (!ALLOWED.includes(file.type)) { alert('Formato no permitido.'); return; }
+  const dt = new DataTransfer(); dt.items.add(file); fileInput.files = dt.files;
+  iniciarAnalisis();
+});
+function resetDropZone() {
+  dropZone.classList.remove('drag-over');
+  document.getElementById('dropIcon').textContent     = '📸';
+  document.getElementById('dropTitle').textContent    = 'Subir nuevo tiquet';
+  document.getElementById('dropSubtitle').textContent = 'Arrastra una imagen o PDF aquí, o haz clic para seleccionar';
+}
+function iniciarAnalisis() {
+  if (!fileInput.files.length) return;
+  document.getElementById('loadingOverlay').classList.add('visible');
+  const steps = ['step1','step2','step3']; let i = 0;
+  const iv = setInterval(() => {
+    if (i > 0) { document.getElementById(steps[i-1]).classList.remove('active'); document.getElementById(steps[i-1]).classList.add('done'); }
+    if (i < steps.length) { document.getElementById(steps[i]).classList.add('active'); i++; }
+    else clearInterval(iv);
+  }, 1800);
+  setTimeout(() => document.getElementById('uploadForm').submit(), 300);
+}
+</script>
+</body>
+</html>

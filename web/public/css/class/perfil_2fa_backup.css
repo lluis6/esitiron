@@ -1,0 +1,23 @@
+/* ==========================================================================
+   ESÍTIRON — perfil_2fa_backup.css
+   ========================================================================== */
+
+/* ── Grid de códigos de recuperación ────────────────────────────────────── */
+.codes-grid {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 10px; margin: 1.5rem 0;
+}
+.code-box {
+  background: var(--surface); border: 1px solid var(--border2);
+  padding: 10px; text-align: center; font-family: monospace;
+  font-size: 1.1rem; border-radius: 6px;
+  letter-spacing: 2px; font-weight: bold; color: var(--text);
+}
+
+/* ── Caja de advertencia ────────────────────────────────────────────────── */
+.warning-box {
+  background: #fef3c7; color: #92400e;
+  border: 1px solid #fcd34d; padding: 15px;
+  border-radius: 8px; font-size: 0.9rem;
+  line-height: 1.5; margin-bottom: 1.5rem;
+}

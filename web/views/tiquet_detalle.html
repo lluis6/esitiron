@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Esítiron — Tiquet #{{ numUsuario }}</title>
+  <script src="/js/theme.js"></script>
+  <link rel="stylesheet" href="/css/main.css">
+  <link rel="stylesheet" href="/css/class/tiquet_detalle.css">
+  <link rel="icon" type="image/png" href="/img/logo.jpg">
+
+</head>
+<body>
+
+<div class="confirm-overlay" id="confirmOverlay">
+  <div class="confirm-card">
+    <div class="confirm-icon">🗑️</div>
+    <div class="confirm-title">¿Eliminar este tiquet?</div>
+    <div class="confirm-text">Se borrarán <strong>todos los productos</strong> asociados.<br>Esta acción <strong>no se puede deshacer</strong>.</div>
+    <div class="confirm-btns">
+      <button class="btn btn-secondary" onclick="cerrarConfirm()">Cancelar</button>
+      <button class="btn btn-danger" onclick="ejecutarEliminar()" id="btnConfirmDelete">Sí, eliminar</button>
+    </div>
+  </div>
+</div>
+
+<div class="share-overlay" id="shareOverlay" onclick="cerrarCompartir(event)">
+  <div class="share-card" onclick="event.stopPropagation()">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:.75rem;">
+      <div>
+        <div style="font-weight:700;color:var(--text);">👥 Compartir tiquet en grupo</div>
+        <div style="font-size:.8rem;color:var(--text3);">Selecciona un grupo para compartir este tiquet</div>
+      </div>
+      <button class="btn btn-secondary" type="button" onclick="cerrarCompartir()">Cerrar</button>
+    </div>
+    <div class="share-list" id="shareList">
+      <div class="pl-loading">Cargando grupos...</div>
+    </div>
+    <div class="share-status" id="shareStatus"></div>
+  </div>
+</div>
+
+<nav class="navbar">
+  <div class="nav-links">
+    <a href="/dashboard" class="nav-link">📊 Dashboard</a>
+    <a href="/tiquets"   class="nav-link active">🧾 Tiquets</a>
+    <a href="/productos" class="nav-link">🛍️  Productos</a>
+    <a href="/grupos"    class="nav-link">👥 Grupos</a>
+  </div>
+  <div class="nav-right">
+    <div class="user-menu-wrap" id="userMenuWrap">
+      <div class="nav-user" id="userTrigger" onclick="toggleMenu()">
+        {% if avatar_url %}
+          <img src="{{ avatar_url }}" class="avatar" style="object-fit:cover;" alt="avatar">
+        {% else %}
+          <div class="avatar">{{ usuario[0] | upper }}</div>
+        {% endif %}
+        <span class="nav-username">{{ usuario }}</span>
+      </div>
+      <div class="user-dropdown" id="userDropdown">
+        <div class="ud-header"><div class="ud-name">{{ usuario }}</div></div>
+        <a href="/perfil" class="ud-item">👤 Mi perfil</a>
+        <div class="ud-divider"></div>
+        <a href="/logout" class="ud-item danger">⏻ Cerrar sesión</a>
+      </div>
+    </div>
+    <button class="theme-toggle" id="theme-toggle" title="Cambiar tema">
+      <span id="icon-sun">☀️</span>
+      <span id="icon-moon" style="display:none">🌙</span>
+    </button>
+  </div>
+</nav>
+
+<main class="main">
+  <!-- Barra de acciones superior -->
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:0.75rem;">
+    <a href="/tiquets" class="btn-back" style="margin:0;">← Volver</a>
+    <div style="display:flex;gap:0.6rem;align-items:center;">
+      <button class="btn-share-group" id="btnShareGroup" type="button">👥 Compartir en grupo</button>
+      <button class="btn-editar-precios" id="btnEditarPrecios" onclick="toggleEditarPrecios()">
+        ✏️ Editar precios
+      </button>
+      <button class="btn-delete-tiquet" onclick="abrirConfirm()">🗑️ Eliminar tiquet</button>
+    </div>
+  </div>
+
+  <div class="page-header">
+    <h1 class="page-title">Tu tiquet #{{ numUsuario }}</h1>
+    <p class="page-subtitle">{{ tiquet.supermercado }} · {{ tiquet.fecha_compra | formatDate }}</p>
+  </div>
+
+  <!-- Cabecera resumen -->
+  <div class="card" style="margin-bottom:1.25rem;">
+    <div class="tiquet-header-grid">
+      <div class="th-item"><div class="th-label">Tienda</div><div class="th-value">{{ tiquet.supermercado }}</div></div>
+      <div class="th-item"><div class="th-label">Fecha</div><div class="th-value">{{ tiquet.fecha_compra | formatDate }}</div></div>
+      <div class="th-item"><div class="th-label">Productos</div><div class="th-value">{{ productos | length }}</div></div>
+      <div class="th-item">
+        <div class="th-label">Total</div>
+        <div class="th-value big total-val" id="totalDisplay">{{ tiquet.total_tiquet | format }} €</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tabla de productos -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">🛒 Productos</span>
+      <span class="badge">{{ productos | length }} líneas</span>
+      <span class="edit-hint">✏️ Modo edición activo — guarda fila a fila</span>
+    </div>
+
+    {% if productos and productos.length > 0 %}
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Cant.</th>
+            <th>Producto</th>
+            <th class="right">Precio unit.</th>
+            <th class="right">Subtotal</th>
+            <th class="col-accion">Acción</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in productos %}
+          <tr class="{{ 'descuento' if p.es_descuento else '' }}"
+              data-id-compra="{{ p.id_compra }}"
+              data-cantidad="{{ p.cantidad }}"
+              data-precio-original="{{ p.precio | format }}"
+              data-idx="{{ loop.index0 }}">
+
+            <!-- Cant. -->
+            <td><span class="qty-pill">{{ p.cantidad | smartCant }}</span></td>
+
+            <!-- Producto -->
+            <td>
+              {% if p.es_descuento %}
+                <span class="descuento-name">Descuento</span>
+              {% else %}
+                {{ p.producto }}
+              {% endif %}
+            </td>
+
+            <!-- Precio unitario: estático + editable -->
+            <td class="right precio-cell">
+              <span class="precio-static {{ 'price-red' if p.precio < 0 else '' }}">
+                {{ p.precio | format }} €
+              </span>
+              <span class="precio-feedback" id="fb-{{ loop.index0 }}"></span>
+
+              <div class="precio-edit-wrap">
+                <input
+                  type="number"
+                  class="precio-input"
+                  id="inp-{{ loop.index0 }}"
+                  value="{{ p.precio | format }}"
+                  step="0.01"
+                  min="-999"
+                  max="9999"
+                  onkeydown="onKeyPrecio(event, this)"
+                >
+                <button class="btn-save-precio"
+                        title="Guardar precio"
+                        onclick="guardarPrecioDesdeBtn(this)">✓</button>
+                <button class="btn-cancel-precio"
+                        title="Cancelar"
+                        onclick="cancelarDesdeBtn(this)">✕</button>
+              </div>
+            </td>
+
+            <!-- Subtotal -->
+            <td class="right {{ 'price-red' if p.precio < 0 else '' }}"
+                id="sub-{{ loop.index0 }}">
+              {{ (p.cantidad * p.precio) | format }} €
+            </td>
+
+            <td class="linea-accion">
+              <button type="button"
+                      class="btn-remove-line"
+                      title="Quitar producto del tiquet"
+                      onclick="eliminarCompraDesdeBtn(this)">🗑️</button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="4">TOTAL</td>
+            <td class="right" id="totalFooter">{{ tiquet.total_tiquet | format }} €</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+      <span class="empty-icon">📭</span>
+      <p class="empty-text">Sin productos.</p>
+    </div>
+    {% endif %}
+  </div>
+</main>
+
+<script>
+const TIQUET_ID = '{{ tiquet.uuid }}';
+
+// ── Menú usuario ──────────────────────────────────────────────
+function toggleMenu() { document.getElementById('userDropdown').classList.toggle('open'); }
+document.addEventListener('click', e => {
+  const w = document.getElementById('userMenuWrap');
+  if (w && !w.contains(e.target)) document.getElementById('userDropdown').classList.remove('open');
+});
+
+// ── Confirmar eliminación ─────────────────────────────────────
+function abrirConfirm()  { document.getElementById('confirmOverlay').classList.add('visible'); }
+function cerrarConfirm() { document.getElementById('confirmOverlay').classList.remove('visible'); }
+document.addEventListener('keydown', e => { if (e.key === 'Escape') cerrarConfirm(); });
+document.getElementById('confirmOverlay').addEventListener('click', e => {
+  if (e.target === e.currentTarget) cerrarConfirm();
+});
+
+async function ejecutarEliminar() {
+  const btn = document.getElementById('btnConfirmDelete');
+  btn.disabled = true; btn.textContent = 'Eliminando...';
+  try {
+    const res = await fetch(`/tiquet/${TIQUET_ID}/eliminar`, { method: 'POST' });
+    if (res.ok) window.location.href = '/dashboard?success=' + encodeURIComponent('Tiquet eliminado correctamente');
+    else { alert('Error al eliminar.'); btn.disabled = false; btn.textContent = 'Sí, eliminar'; }
+  } catch { alert('Error de red.'); btn.disabled = false; btn.textContent = 'Sí, eliminar'; }
+}
+
+// ── Toggle modo edición de precios ────────────────────────────
+let modoEdicion = false;
+const filas = document.querySelectorAll('tbody tr');
+
+function toggleEditarPrecios() {
+  modoEdicion = !modoEdicion;
+  document.body.classList.toggle('edit-precios', modoEdicion);
+
+  const btn = document.getElementById('btnEditarPrecios');
+  btn.classList.toggle('activo', modoEdicion);
+  btn.textContent = modoEdicion ? '👁 Ver tiquet' : '✏️ Editar precios';
+
+  if (modoEdicion) {
+    // Enfocar el primer input disponible
+    const primero = document.querySelector('.precio-input');
+    if (primero) primero.focus();
+  } else {
+    // Al salir del modo edición, restaurar valores pendientes no guardados
+    filas.forEach((fila, i) => {
+      const input = document.getElementById(`inp-${i}`);
+      if (input) input.value = fila.dataset.precioOriginal;
+      ocultarFeedback(i);
+    });
+  }
+}
+
+// ── Guardar precio de una fila ────────────────────────────────
+async function guardarPrecio(idx, btnEl) {
+  const fila      = [...filas][idx];
+  const idCompra  = fila.dataset.idCompra;
+  const cantidad  = parseFloat(fila.dataset.cantidad);
+  const input     = document.getElementById(`inp-${idx}`);
+  const nuevoPrecio = parseFloat(input.value);
+
+  if (isNaN(nuevoPrecio)) {
+    mostrarFeedback(idx, 'err', 'Precio inválido');
+    return;
+  }
+
+  btnEl.disabled = true;
+  btnEl.textContent = '…';
+
+  try {
+    const res  = await fetch(`/api/compra/${idCompra}/precio`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ precio: nuevoPrecio }),
+    });
+    const data = await res.json();
+
+    if (res.ok && data.success) {
+      // Actualizar dato guardado
+      fila.dataset.precioOriginal = nuevoPrecio.toFixed(2);
+
+      // Actualizar celda estática
+      const staticSpan = fila.querySelector('.precio-static');
+      staticSpan.textContent = nuevoPrecio.toFixed(2) + ' €';
+      staticSpan.className = 'precio-static' + (nuevoPrecio < 0 ? ' price-red' : '');
+
+      // Actualizar subtotal
+      const sub = document.getElementById(`sub-${idx}`);
+      const subtotal = cantidad * nuevoPrecio;
+      sub.textContent = subtotal.toFixed(2) + ' €';
+      sub.className   = 'right' + (subtotal < 0 ? ' price-red' : '');
+
+      // Actualizar totales
+      actualizarTotalDisplay(parseFloat(data.nuevo_total));
+
+      mostrarFeedback(idx, 'ok', '✓ Guardado');
+    } else {
+      mostrarFeedback(idx, 'err', data.error || 'Error');
+    }
+  } catch (e) {
+    mostrarFeedback(idx, 'err', 'Error de red');
+  } finally {
+    btnEl.disabled = false;
+    btnEl.textContent = '✓';
+  }
+}
+
+function cancelarEdicion(idx) {
+  const fila  = [...filas][idx];
+  const input = document.getElementById(`inp-${idx}`);
+  input.value = fila.dataset.precioOriginal;
+  ocultarFeedback(idx);
+}
+
+function getIdxFromElement(el) {
+  var tr = el && el.closest ? el.closest('tr') : null;
+  if (!tr) return -1;
+  var idx = parseInt(tr.dataset.idx, 10);
+  return Number.isNaN(idx) ? -1 : idx;
+}
+
+function guardarPrecioDesdeBtn(btnEl) {
+  var idx = getIdxFromElement(btnEl);
+  if (idx < 0) return;
+  guardarPrecio(idx, btnEl);
+}
+
+function cancelarDesdeBtn(btnEl) {
+  var idx = getIdxFromElement(btnEl);
+  if (idx < 0) return;
+  cancelarEdicion(idx);
+}
+
+// Enter para guardar, Escape para cancelar
+function onKeyPrecio(e, inputEl) {
+  var idx = getIdxFromElement(inputEl);
+  if (idx < 0) return;
+
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    var btnSave = inputEl.closest('.precio-edit-wrap').querySelector('.btn-save-precio');
+    guardarPrecio(idx, btnSave);
+  }
+  if (e.key === 'Escape') cancelarEdicion(idx);
+}
+
+// ── Helpers de feedback e totales ────────────────────────────
+function mostrarFeedback(idx, tipo, msg) {
+  const fb = document.getElementById(`fb-${idx}`);
+  if (!fb) return;
+  fb.textContent = msg;
+  fb.className   = 'precio-feedback ' + tipo;
+  if (tipo === 'ok') setTimeout(() => ocultarFeedback(idx), 3000);
+}
+
+function ocultarFeedback(idx) {
+  const fb = document.getElementById(`fb-${idx}`);
+  if (fb) fb.className = 'precio-feedback';
+}
+
+function actualizarTotalDisplay(nuevoTotal) {
+  const fmt = nuevoTotal.toFixed(2) + ' €';
+
+  const totalHeader = document.getElementById('totalDisplay');
+  const totalFooter = document.getElementById('totalFooter');
+
+  [totalHeader, totalFooter].forEach(el => {
+    if (!el) return;
+    el.textContent = fmt;
+    el.classList.add('updated');
+    setTimeout(() => el.classList.remove('updated'), 1500);
+  });
+}
+
+let gruposCompartir = null;
+
+function escHtml(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function setShareStatus(msg, isError) {
+  var el = document.getElementById('shareStatus');
+  if (!el) return;
+  el.style.color = isError ? 'var(--red)' : 'var(--text3)';
+  el.textContent = msg || '';
+}
+
+function cerrarCompartir(ev) {
+  if (ev && ev.target !== ev.currentTarget) return;
+  var ov = document.getElementById('shareOverlay');
+  if (ov) ov.classList.remove('visible');
+  setShareStatus('');
+}
+
+async function abrirCompartir() {
+  var ov = document.getElementById('shareOverlay');
+  if (ov) ov.classList.add('visible');
+  // no bloquear UI por await
+  cargarGruposParaCompartir();
+}
+
+async function safeJson(res) {
+  try { return await res.json(); }
+  catch (e) { return null; }
+}
+
+async function cargarGruposParaCompartir() {
+  var list = document.getElementById('shareList');
+  if (!list) return;
+
+  if (gruposCompartir && gruposCompartir.length) {
+    renderGruposCompartir(gruposCompartir);
+    return;
+  }
+
+  list.innerHTML = '<div class="pl-loading">Cargando grupos...</div>';
+  setShareStatus('');
+
+  try {
+    var res = await fetch('/api/grupos');
+    var data = await safeJson(res);
+    var grupos = Array.isArray(data) ? data : ((data && data.grupos) || []);
+
+    // fallback también si viene vacío
+    if (!grupos || !grupos.length) {
+      var res2 = await fetch('/api/grupos/mis');
+      var data2 = await safeJson(res2);
+      grupos = Array.isArray(data2) ? data2 : ((data2 && data2.grupos) || []);
+    }
+
+    gruposCompartir = grupos || [];
+    renderGruposCompartir(gruposCompartir);
+  } catch (e) {
+    list.innerHTML = '<div class="pl-loading" style="color:var(--red);">No se pudieron cargar tus grupos.</div>';
+  }
+}
+
+function renderGruposCompartir(grupos) {
+  var list = document.getElementById('shareList');
+  if (!list) return;
+
+  if (!grupos || !grupos.length) {
+    list.innerHTML = '<div class="pl-loading">No tienes grupos disponibles.</div>';
+    return;
+  }
+
+  list.innerHTML = grupos.map(function (g) {
+    var id = g.id || g.id_grupo || g.grupo_id || g.uuid;
+    if (!id) return '';
+
+    var nombreRaw = g.nombre || g.name || 'Grupo';
+    var nombre = escHtml(nombreRaw);
+    var rol = escHtml(g.rol || g.mi_rol || '');
+
+    return (
+      '<button type="button" class="share-item" ' +
+        'data-grupo-id="' + escHtml(String(id)) + '" ' +
+        'data-grupo-nombre="' + nombre + '">' +
+        '<span><strong>' + nombre + '</strong><br><small style="color:var(--text3);">' + rol + '</small></span>' +
+        '<span style="color:var(--accent);font-weight:700;">Compartir →</span>' +
+      '</button>'
+    );
+  }).join('');
+}
+
+function compartirEnGrupoDesdeBtn(btnEl) {
+  if (!btnEl) return;
+  var grupoId = btnEl.dataset.grupoId;
+  var nombreGrupo = btnEl.dataset.grupoNombre || 'Grupo';
+  if (!grupoId) {
+    setShareStatus('No se encontró el identificador del grupo.', true);
+    return;
+  }
+  compartirEnGrupo(grupoId, nombreGrupo, btnEl);
+}
+
+async function compartirEnGrupo(grupoId, nombreGrupo, btnEl) {
+  if (!grupoId) return;
+  if (btnEl) btnEl.disabled = true;
+  setShareStatus('Compartiendo...');
+
+  var gid = encodeURIComponent(String(grupoId));
+  var endpoints = [
+    '/api/grupos/' + gid + '/tiquets/compartir',
+    '/api/grupos/' + gid + '/tiquets',
+    '/api/tiquets/' + encodeURIComponent(TIQUET_ID) + '/compartir'
+  ];
+
+  var payloads = [
+    { tiquet_uuid: TIQUET_ID, grupo_id: grupoId },
+    { ticket_uuid: TIQUET_ID, grupo_id: grupoId },
+    { uuid_tiquet: TIQUET_ID, grupo_id: grupoId },
+    { tiquet_id: TIQUET_ID, grupo_id: grupoId },
+    { grupo_id: grupoId }
+  ];
+
+  try {
+    var ok = false;
+    var errMsg = '';
+
+    for (var i = 0; i < endpoints.length && !ok; i++) {
+      for (var j = 0; j < payloads.length && !ok; j++) {
+        var res = await fetch(endpoints[i], {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payloads[j])
+        });
+
+        if (res.ok) {
+          ok = true;
+          break;
+        }
+
+        try {
+          var d = await res.json();
+          if (d && d.error) errMsg = d.error;
+        } catch (e) {}
+      }
+    }
+
+    if (ok) {
+      setShareStatus('✅ Tiquet compartido en "' + nombreGrupo + '"');
+      setTimeout(function () { cerrarCompartir(); }, 700);
+    } else {
+      setShareStatus(errMsg || 'No se pudo compartir el tiquet.', true);
+    }
+  } catch (e) {
+    setShareStatus('Error de conexión al compartir.', true);
+  } finally {
+    if (btnEl) btnEl.disabled = false;
+  }
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+  var btnShare = document.getElementById('btnShareGroup');
+  if (btnShare) btnShare.addEventListener('click', abrirCompartir);
+
+  var shareList = document.getElementById('shareList');
+  if (shareList) {
+    shareList.addEventListener('click', function (ev) {
+      var btn = ev.target.closest('.share-item');
+      if (!btn) return;
+      compartirEnGrupoDesdeBtn(btn);
+    });
+  }
+
+  // Compatibilidad con handlers inline (onclick="...")
+  Object.assign(window, {
+    toggleMenu,
+    abrirConfirm,
+    cerrarConfirm,
+    ejecutarEliminar,
+    toggleEditarPrecios,
+    guardarPrecioDesdeBtn,
+    cancelarDesdeBtn,
+    onKeyPrecio,
+    cerrarCompartir,
+    eliminarCompraDesdeBtn
+  });
+});
+</script>
+</body>
+</html>

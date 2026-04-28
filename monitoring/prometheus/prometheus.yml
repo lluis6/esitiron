@@ -1,0 +1,40 @@
+global:
+  scrape_interval:     15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'esitiron'
+
+scrape_configs:
+
+  # ── 1. Auto-monitoreo de Prometheus ─────────────────────────
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # ── 2. App Node.js (prom-client en puerto 9090 interno) ─────
+  - job_name: 'esitiron_web'
+    static_configs:
+      - targets: ['web:3000']
+    metrics_path: /metrics
+
+  # ── 3. Sistema Host — CPU, RAM, Disco, Red ──────────────────
+  # job_name DEBE ser exactamente 'node' para el dashboard 1860
+  - job_name: 'node'
+    static_configs:
+      - targets: ['node-exporter:9100']
+
+  # ── 4. Contenedores Docker — cAdvisor ───────────────────────
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']
+    metrics_path: /metrics
+
+  # ── 5. Base de datos MySQL ───────────────────────────────────
+  - job_name: 'mysql'
+    static_configs:
+      - targets: ['mysql-exporter:9104']
+
+  # ── 6. Nginx (nginx-prometheus-exporter) ────────────────────
+  - job_name: 'nginx'
+    static_configs:
+      - targets: ['nginx-exporter:9113']

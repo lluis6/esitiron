@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Esítiron — Todos los tiquets</title>
+  <script src="/js/theme.js"></script>
+  <link rel="stylesheet" href="/css/main.css">
+  <link rel="stylesheet" href="/css/class/todos_tiquets.css">
+  <link rel="icon" type="image/png" href="/img/logo.jpg">
+</head>
+<body>
+
+<!-- ══ REQ 2: NAVBAR idéntico al dashboard ══════════════════════ -->
+<nav class="navbar">
+  <div class="nav-links">
+    <a href="/dashboard" class="nav-link">📊 Dashboard</a>
+    <a href="/tiquets"   class="nav-link active">🧾 Tiquets</a>
+    <a href="/productos" class="nav-link">🛍️ Productos</a>
+    <a href="/grupos"    class="nav-link">👥 Grupos</a>
+  </div>
+  <div class="nav-right">
+    <div class="user-menu-wrap" id="userMenuWrap">
+      <div class="nav-user" id="userTrigger" onclick="toggleMenu()">
+        {% if avatar_url %}
+          <img src="{{ avatar_url }}" class="avatar" style="object-fit:cover;" alt="avatar">
+        {% else %}
+          <div class="avatar">{{ usuario[0] | upper }}</div>
+        {% endif %}
+        <span class="nav-username">{{ usuario }}</span>
+      </div>
+      <div class="user-dropdown" id="userDropdown">
+        <div class="ud-header">
+          <div class="ud-name">{{ usuario }}</div>
+          <div class="ud-email">{{ usuario_email }}</div>
+        </div>
+        <a href="/perfil" class="ud-item">👤 Mi perfil</a>
+        <div class="ud-divider"></div>
+        <a href="/logout" class="ud-item danger">⏻ Cerrar sesión</a>
+      </div>
+    </div>
+    <button class="theme-toggle" id="theme-toggle" title="Cambiar tema">
+      <span id="icon-sun">☀️</span>
+      <span id="icon-moon" style="display:none">🌙</span>
+    </button>
+  </div>
+</nav>
+
+<main class="main">
+  <div class="page-header">
+    <h1 class="page-title">Todos los tiquets 🧾</h1>
+    <p class="page-subtitle">Historial completo de tus compras</p>
+  </div>
+
+  {% if messages and messages.length > 0 %}
+  <div class="flashes">
+    {% for msg in messages %}
+    <div class="flash {{ msg[0] }}">{{ msg[1] }}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if historial and historial.length > 0 %}
+
+  <!-- Resumen rápido -->
+  <div class="tiquets-summary">
+    <div class="summary-item">
+      <span class="summary-label">Total tiquets:</span>
+      <span class="summary-value" id="countVisible">{{ historial | length }}</span>
+    </div>
+    <div class="summary-item">
+      <span class="summary-label">Gasto histórico:</span>
+      <span class="summary-value accent">{{ totales.total }} €</span>
+    </div>
+    <div class="summary-item">
+      <span class="summary-label">Este mes:</span>
+      <span class="summary-value">{{ totales.mes }} €</span>
+    </div>
+  </div>
+
+  <!-- Toolbar: búsqueda + ordenación -->
+  <div class="tiquets-toolbar">
+    <div class="tiquets-toolbar-left">
+      <input type="text" id="searchTiquets" class="search-tiquets"
+             placeholder="Buscar por tienda o fecha..."
+             oninput="filtrarTiquets()">
+      <select id="sortSelect" class="sort-select" onchange="ordenarTiquets()">
+        <option value="fecha-desc">Más recientes</option>
+        <option value="fecha-asc">Más antiguos</option>
+        <option value="total-desc">Mayor importe</option>
+        <option value="total-asc">Menor importe</option>
+      </select>
+    </div>
+    <span class="results-info" id="resultados">{{ historial | length }} tiquets</span>
+  </div>
+
+  <!-- ══ REQ 3 + REQ 4: Lista de tiquets — mismo diseño que dashboard ══ -->
+  <div class="card" style="overflow:hidden;">
+    <div id="listaTiquets">
+      {% for tiquet in historial %}
+      <!--
+        REQ 4: toda la fila es un <a> → navega al detalle del tiquet.
+        data-tienda y data-fecha para el filtro JS en cliente.
+      -->
+	<a href="/tiquet/{{ tiquet.uuid }}"
+         class="tiquet-item"
+         data-tienda="{{ tiquet.supermercado | lower }}"
+         data-fecha="{{ tiquet.fecha_compra }}"
+         data-total="{{ tiquet.total_tiquet }}"
+         data-num="{{ tiquet.num_usuario }}">
+
+        <!-- Número relativo del tiquet del usuario -->
+        <div class="tiquet-num">#{{ tiquet.num_usuario }}</div>
+
+        <div class="tiquet-info">
+          <div class="tiquet-tienda">{{ tiquet.supermercado }}</div>
+          <div class="tiquet-fecha">{{ tiquet.fecha_compra | formatDate }}</div>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:0.75rem;">
+          <span style="font-size:0.75rem;color:var(--text3);">{{ tiquet.total_articulos }} art.</span>
+          <div class="tiquet-total">{{ tiquet.total_tiquet | format }} €</div>
+          <svg class="chevron-icon" width="14" height="14" viewBox="0 0 24 24"
+               fill="none" stroke="currentColor" stroke-width="2.5"
+               stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="9 18 15 12 9 6"/>
+          </svg>
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+
+    <!-- Sin resultados tras buscar -->
+    <div class="no-resultados" id="noResultados">
+      <span class="no-resultados-icon">🔍</span>
+      <h3 style="font-weight:700;color:var(--text2);margin-bottom:0.5rem;">Sin resultados</h3>
+      <p style="font-size:0.875rem;color:var(--text3);">
+        No hay tiquets que coincidan con tu búsqueda.
+      </p>
+      <button onclick="limpiarBusqueda()"
+              style="margin-top:1rem;padding:0.5rem 1.25rem;background:var(--accent);
+                     color:#fff;border:none;border-radius:var(--radius-sm);
+                     font-weight:600;cursor:pointer;">
+        Limpiar búsqueda
+      </button>
+    </div>
+  </div>
+
+  {% else %}
+  <div class="card">
+    <div class="empty-state">
+      <span class="empty-icon">📭</span>
+      <h3>Sin tiquets aún</h3>
+      <p class="empty-text">
+        Sube tu primer tiquet desde el
+        <a href="/dashboard" style="color:var(--accent);font-weight:600;">Dashboard</a>.
+      </p>
+    </div>
+  </div>
+  {% endif %}
+
+</main>
+
+<script>
+// ── Menú usuario ───────────────────────────────────────────────
+function toggleMenu() { document.getElementById('userDropdown').classList.toggle('open'); }
+document.addEventListener('click', e => {
+  const w = document.getElementById('userMenuWrap');
+  if (w && !w.contains(e.target)) document.getElementById('userDropdown').classList.remove('open');
+});
+
+// ── Filtrado por texto ─────────────────────────────────────────
+function filtrarTiquets() {
+  const q    = document.getElementById('searchTiquets').value.toLowerCase().trim();
+  const rows = document.querySelectorAll('#listaTiquets a.tiquet-item');
+  let visible = 0;
+
+  rows.forEach(row => {
+    const tienda = row.dataset.tienda || '';
+    const fecha  = row.dataset.fecha  || '';
+    const match  = tienda.includes(q) || fecha.includes(q);
+    row.style.display = match ? '' : 'none';
+    if (match) visible++;
+  });
+
+  document.getElementById('resultados').textContent   = visible + ' tiquet' + (visible !== 1 ? 's' : '');
+  document.getElementById('countVisible').textContent  = visible;
+  document.getElementById('noResultados').classList.toggle('visible', visible === 0 && rows.length > 0);
+}
+
+function limpiarBusqueda() {
+  document.getElementById('searchTiquets').value = '';
+  filtrarTiquets();
+}
+
+// ── Ordenación ─────────────────────────────────────────────────
+function ordenarTiquets() {
+  const criterio = document.getElementById('sortSelect').value;
+  const lista    = document.getElementById('listaTiquets');
+  const rows     = Array.from(lista.querySelectorAll('a.tiquet-item'));
+
+  rows.sort((a, b) => {
+    switch (criterio) {
+      case 'fecha-desc': return new Date(b.dataset.fecha) - new Date(a.dataset.fecha);
+      case 'fecha-asc':  return new Date(a.dataset.fecha) - new Date(b.dataset.fecha);
+      case 'total-desc': return parseFloat(b.dataset.total) - parseFloat(a.dataset.total);
+      case 'total-asc':  return parseFloat(a.dataset.total) - parseFloat(b.dataset.total);
+      default:           return 0;
+    }
+  });
+
+  // Re-insertar en el orden correcto
+  rows.forEach(row => lista.appendChild(row));
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Esítiron — Verificación 2FA</title>
+  <script src="/js/theme.js"></script>
+  <link rel="stylesheet" href="/css/main.css">
+  <link rel="stylesheet" href="/css/class/login.css">
+  <link rel="icon" type="image/png" href="/img/logo.jpg">
+</head>
+<body class="login-page">
+<div class="login-wrap">
+  <div class="login-logo">
+    <div class="icon">🔐</div>
+    <h1>Esítiron</h1>
+    <p>Verificación en dos pasos</p>
+  </div>
+  <div class="login-card">
+    {% if messages and messages.length > 0 %}
+    <div class="flashes">
+      {% for msg in messages %}
+      <div class="flash {{ msg[0] }}">{{ msg[1] }}</div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <p style="margin-bottom:1.25rem;color:var(--text2);font-size:.88rem;text-align:center;line-height:1.5;">
+      Introduce el código de tu app de autenticación<br>o un <strong>Código de Recuperación</strong>.
+    </p>
+
+    <form method="POST" action="/login/2fa">
+      <div class="field">
+        <label>Código</label>
+        <input
+          type="text"
+          name="token"
+          autocomplete="one-time-code"
+          maxlength="10"
+          placeholder="000 000  ó  a1b2c3d4"
+          required
+          autofocus
+          style="letter-spacing:.2em;font-size:1.2rem;text-align:center;padding:.75rem;"
+        >
+      </div>
+      <button type="submit" class="btn-submit" style="margin-top:.5rem;">Verificar →</button>
+    </form>
+
+    <p style="margin-top:1.25rem;text-align:center;font-size:.82rem;">
+      <a href="/login" style="color:var(--text3);">← Volver al inicio de sesión</a>
+    </p>
+  </div>
+  <div class="login-footer">Esítiron · ASIX 2025–2026 · Lluis Carbonell & Wei Xu</div>
+</div>
+</body>
+</html>

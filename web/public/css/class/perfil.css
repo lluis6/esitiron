@@ -1,0 +1,306 @@
+/* ================================================================
+   ESÍTIRON — perfil.css
+   Estilos para la página de perfil del usuario
+================================================================ */
+
+/* ── Layout principal ──────────────────────────────────────────── */
+.perfil-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  margin-bottom: 1.5rem;
+}
+
+@media (max-width: 900px) {
+  .perfil-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Card de sección ───────────────────────────────────────────── */
+.section-card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  box-shadow: var(--shadow);
+  transition: background-color 0.35s ease, border-color 0.35s ease, box-shadow 0.35s ease;
+}
+
+html.dark .section-card {
+  box-shadow: none;
+}
+
+.section-title {
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--text);
+  margin-bottom: 1.25rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+/* ── Avatar grande (editable) ──────────────────────────────────── */
+.avatar-wrap {
+  position: relative;
+  width: 100px;
+  height: 100px;
+  margin: 0 auto 1rem;
+  cursor: pointer;
+  border-radius: 50%;
+  overflow: hidden;
+  transition: transform 0.2s ease;
+}
+
+.avatar-wrap:hover {
+  transform: scale(1.05);
+}
+
+.avatar-big {
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), #34D399);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2.2rem;
+  font-weight: 800;
+  color: #fff;
+}
+
+.avatar-big-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+}
+
+.avatar-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  color: #fff;
+  font-weight: 600;
+  text-align: center;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  border-radius: 50%;
+}
+
+.avatar-wrap:hover .avatar-overlay {
+  opacity: 1;
+}
+
+/* ── Estado de subida ──────────────────────────────────────────── */
+.upload-status {
+  font-size: 0.82rem;
+  margin-top: 0.5rem;
+  transition: all 0.3s ease;
+}
+
+.upload-status.uploading {
+  color: var(--text2);
+  font-weight: 500;
+}
+
+.upload-status.success {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.upload-status.error {
+  color: var(--red);
+  font-weight: 600;
+}
+
+/* ── Formulario ────────────────────────────────────────────────── */
+.form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-bottom: 1.1rem;
+}
+
+.form-row label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text2);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.form-row input {
+  padding: 0.65rem 0.9rem;
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--surface);
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.35s ease;
+}
+
+.form-row input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.12);
+}
+
+.form-row input::placeholder {
+  color: var(--text3);
+}
+
+.hint {
+  font-size: 0.75rem;
+  color: var(--text3);
+  margin-top: 0.25rem;
+}
+
+/* ── Badges 2FA ────────────────────────────────────────────────── */
+.totp-badge-on {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.85rem;
+  border-radius: 20px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  background: rgba(16, 185, 129, 0.1);
+  color: var(--accent);
+  border: 1px solid var(--accent-mid);
+}
+
+.totp-badge-off {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.85rem;
+  border-radius: 20px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  background: rgba(251, 191, 36, 0.1);
+  color: var(--yellow);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+}
+
+/* ── Botones ───────────────────────────────────────────────────── */
+.btn-2fa {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 1.25rem;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  text-decoration: none;
+  transition: all 0.2s ease;
+}
+
+.btn-2fa:hover {
+  background: var(--accent-hv);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.25);
+}
+
+.btn-danger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.65rem 1.25rem;
+  background: var(--red-lt);
+  color: var(--red);
+  border: 1px solid rgba(248, 113, 113, 0.3);
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s ease;
+}
+
+.btn-danger:hover {
+  background: var(--red);
+  color: #fff;
+  border-color: var(--red);
+}
+
+/* ── Botón guardar cambios ────────────────────────────────────── */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.65rem 1.25rem;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s ease;
+}
+
+.btn-primary:hover {
+  background: var(--accent-hv);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.25);
+}
+
+.btn-primary:active {
+  transform: scale(0.97);
+}
+
+/* ── Responsive ────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .perfil-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .section-card {
+    padding: 1.25rem;
+  }
+
+  .form-row {
+    margin-bottom: 1rem;
+  }
+}
+
+@media (max-width: 560px) {
+  .main {
+    padding: 1rem 0.75rem 2rem;
+  }
+
+  .section-card {
+    padding: 1rem;
+  }
+
+  .avatar-wrap {
+    width: 80px;
+    height: 80px;
+  }
+
+  .avatar-big {
+    width: 80px;
+    height: 80px;
+    font-size: 1.8rem;
+  }
+
+  .form-row {
+    margin-bottom: 0.9rem;
+  }
+
+  .form-row input {
+    padding: 0.6rem 0.8rem;
+    font-size: 16px; /* Previene zoom en iOS */
+  }
+}

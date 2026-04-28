@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Esítiron — Activar 2FA</title>
+  <script src="/js/theme.js"></script>
+  <link rel="stylesheet" href="/css/main.css">
+  <link rel="stylesheet" href="/css/class/perfil_2fa_setup.css">
+  <link rel="icon" type="image/png" href="/img/logo.jpg">
+</head>
+<body>
+<nav class="navbar">
+  <div class="nav-logo"><div class="logo-icon">🧾</div><span class="logo-name">Esítiron</span></div>
+  <div class="nav-right">
+    <a href="/perfil" class="btn-logout">← Volver al perfil</a>
+  </div>
+</nav>
+
+<div class="setup-wrap">
+  <div class="page-header" style="margin-bottom:1.25rem;">
+    <h1 class="page-title">Activar 2FA 🔐</h1>
+    <p class="page-subtitle">Sigue los pasos para vincular tu app de autenticación</p>
+  </div>
+
+  {% if messages and messages.length > 0 %}
+  <div class="flashes" style="margin-bottom:1rem;">
+    {% for msg in messages %}
+    <div class="flash {{ msg[0] }}">{{ msg[1] }}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="setup-card">
+
+    <!-- Paso 1 -->
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <p>Abre tu app de autenticación (<strong>Google Authenticator</strong>, <strong>Aegis</strong>, <strong>Bitwarden</strong>…) y escanea este código QR:</p>
+        <div style="text-align:center;margin:.75rem 0;">
+          <img src="{{ qr }}" alt="QR 2FA"
+               style="width:190px;height:190px;border-radius:12px;border:4px solid var(--border);padding:4px;background:#fff;">
+        </div>
+      </div>
+    </div>
+
+    <!-- Paso 2 -->
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <p>Si no puedes escanear el QR, introduce esta clave manualmente en la app:</p>
+        <div class="secret-box">{{ secret_manual }}</div>
+      </div>
+    </div>
+
+    <!-- Paso 3 -->
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-body">
+        <p>Introduce el código de 6 dígitos que aparece en la app para confirmar la vinculación:</p>
+        <form method="POST" action="/perfil/2fa/setup">
+          <div class="form-row">
+            <label>Código OTP</label>
+            <input
+              type="text"
+              name="token"
+              inputmode="numeric"
+              autocomplete="one-time-code"
+              maxlength="6"
+              placeholder="000 000"
+              required
+              autofocus
+              style="letter-spacing:.4em;font-size:1.4rem;text-align:center;"
+            >
+          </div>
+          <button type="submit" class="btn btn-primary" style="width:100%;">Activar 2FA →</button>
+        </form>
+      </div>
+    </div>
+
+  </div>
+
+  <p style="text-align:center;margin-top:1rem;font-size:.85rem;">
+    <a href="/perfil" style="color:var(--text3);">Cancelar y volver al perfil</a>
+  </p>
+</div>
+</body>
+</html>

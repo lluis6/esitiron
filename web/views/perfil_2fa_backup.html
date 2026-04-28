@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Esítiron — Códigos de recuperación</title>
+  <script src="/js/theme.js"></script>
+  <link rel="stylesheet" href="/css/main.css">
+  <link rel="stylesheet" href="/css/class/perfil_2fa_backup.css">
+  <link rel="icon" type="image/png" href="/img/logo.jpg">
+</head>
+<body>
+<nav class="navbar">
+  <div class="nav-logo"><div class="logo-icon">🧾</div><span class="logo-name">Esítiron</span></div>
+  <div class="nav-right"><a href="/perfil" class="btn-logout">Ir a mi perfil →</a></div>
+</nav>
+
+<div class="setup-wrap">
+  <div class="page-header" style="margin-bottom:1.25rem;">
+    <h1 class="page-title">¡2FA Activado con Éxito! 🎉</h1>
+    <p class="page-subtitle">Paso final: Guarda tus códigos de recuperación</p>
+  </div>
+
+  <div class="setup-card">
+    <div class="warning-box">
+      <strong>⚠️ MUY IMPORTANTE:</strong> Guarda estos códigos en un lugar seguro. Si pierdes el acceso a tu teléfono o desinstalas la app de autenticación, <strong>esta es la única forma</strong> de recuperar el acceso a tu cuenta de Esítiron. Cada código solo puede usarse una vez.
+    </div>
+
+    <div class="codes-grid">
+      {% for code in codes %}
+        <div class="code-box">{{ code }}</div>
+      {% endfor %}
+    </div>
+
+    <a href="/perfil" class="btn btn-primary" style="display:block; text-align:center; width:100%; text-decoration:none;">
+      Ya los he guardado, volver al Perfil
+    </a>
+  </div>
+</div>
+</body>
+</html>
