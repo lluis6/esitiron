@@ -119,6 +119,7 @@ async function initDB() {
   await dbPool.execute(`ALTER TABLE compras ADD COLUMN IF NOT EXISTS curado TINYINT(1) NOT NULL DEFAULT 0`).catch(() => {});
   await dbPool.execute(`ALTER TABLE productos_maestros ADD COLUMN IF NOT EXISTS foto_url VARCHAR(500) DEFAULT NULL`).catch(() => {});
   await dbPool.execute(`ALTER TABLE productos_maestros ADD COLUMN IF NOT EXISTS codigo_barras VARCHAR(50) DEFAULT NULL`).catch(() => {});
+  await dbPool.execute(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS es_admin TINYINT(1) NOT NULL DEFAULT 0`).catch(() => {});
 
   await dbPool.execute(`
     CREATE TABLE IF NOT EXISTS diccionario_productos (
@@ -166,6 +167,25 @@ async function initDB() {
   `);
 
   await dbPool.execute(`
+    CREATE TABLE IF NOT EXISTS verificaciones_producto (
+      id              INT UNSIGNED    NOT NULL AUTO_INCREMENT,
+      id_producto     INT UNSIGNED    NOT NULL,
+      id_usuario      INT UNSIGNED    NOT NULL,
+      motivo          VARCHAR(255)    DEFAULT NULL,
+      estado          ENUM('pendiente','rechazado','eliminado','desvinculado') NOT NULL DEFAULT 'pendiente',
+      creado_en       DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      INDEX idx_producto_estado (id_producto, estado),
+      FOREIGN KEY (id_producto) REFERENCES productos_maestros(id) ON DELETE CASCADE,
+      FOREIGN KEY (id_usuario) REFERENCES usuarios(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB
+  `);
+
+  await dbPool.execute(
+    "ALTER TABLE verificaciones_producto MODIFY estado ENUM('pendiente','rechazado','eliminado','desvinculado') NOT NULL DEFAULT 'pendiente'"
+  ).catch(() => {});
+
+  await dbPool.execute(`
     CREATE TABLE IF NOT EXISTS opf_drafts (
       id            INT UNSIGNED NOT NULL AUTO_INCREMENT,
       id_usuario    INT UNSIGNED NOT NULL,
@@ -184,6 +204,39 @@ async function initDB() {
       FOREIGN KEY (id_usuario) REFERENCES usuarios(id) ON DELETE CASCADE
     ) ENGINE=InnoDB
   `);
+
+  await dbPool.execute(`
+    CREATE TABLE IF NOT EXISTS opf_pendientes (
+      id             INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      id_usuario     INT UNSIGNED NOT NULL,
+      ean            VARCHAR(50)  NOT NULL,
+      nombre         VARCHAR(200) NOT NULL,
+      marca          VARCHAR(100) NOT NULL,
+      foto_path      VARCHAR(255) DEFAULT NULL,
+      estado         ENUM('pendiente','enviado','rechazado','fallido') NOT NULL DEFAULT 'pendiente',
+      opf_response   TEXT         DEFAULT NULL,
+      error_msg      VARCHAR(500) DEFAULT NULL,
+      creado_en      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      actualizado_en DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      INDEX idx_opf_pend_usuario (id_usuario),
+      INDEX idx_opf_pend_estado (estado),
+      FOREIGN KEY (id_usuario) REFERENCES usuarios(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB
+  `);
+
+  await dbPool.execute(`
+    UPDATE compras c
+    LEFT JOIN productos_maestros pm ON pm.id = c.id_producto
+    SET c.id_producto = NULL, c.curado = 0
+    WHERE c.id_producto IS NOT NULL AND pm.id IS NULL
+  `).catch(() => {});
+
+  await dbPool.execute(`
+    DELETE dp FROM diccionario_productos dp
+    LEFT JOIN productos_maestros pm ON pm.id = dp.id_producto_maestro
+    WHERE pm.id IS NULL
+  `).catch(() => {});
 
   console.log('[DB] Todas las tablas listas');
   
@@ -307,6 +360,16 @@ app.use((_req, res, next) => {
 
 const auth = (req, res, next) => {
   if (!req.session.usuario) return res.redirect('/login?error=Debes+iniciar+sesión');
+  next();
+};
+
+const adminOnly = (req, res, next) => {
+  if (!req.session.usuario?.es_admin) return res.status(403).json({ error: 'No autorizado' });
+  next();
+};
+
+const adminPageOnly = (req, res, next) => {
+  if (!req.session.usuario?.es_admin) return res.redirect('/dashboard?error=No+autorizado');
   next();
 };
 
@@ -438,7 +501,12 @@ env.addFilter('formatDateShort', v => {
 });
 
 function navLocals(req) {
-  return { usuario: req.session.usuario?.username || '', usuario_email: req.session.usuario?.email || '', avatar_url: req.session.usuario?.avatar ? '/avatar/' + path.basename(req.session.usuario.avatar) : null };
+  return {
+    usuario: req.session.usuario?.username || '',
+    usuario_email: req.session.usuario?.email || '',
+    avatar_url: req.session.usuario?.avatar ? '/avatar/' + path.basename(req.session.usuario.avatar) : null,
+    es_admin: !!req.session.usuario?.es_admin,
+  };
 }
 
 // ── CONSULTAS BD ─────────────────────────────────────────────
@@ -452,6 +520,7 @@ async function getTiquets(uid, limit = null) {
   const [rows] = await dbPool.execute(`
     SELECT t.id, t.uuid, t.supermercado, t.fecha_compra, t.total_tiquet,
            COUNT(c.id) AS total_articulos,
+           (SELECT COUNT(*) FROM tiquets_grupos tg WHERE tg.tiquet_id = t.id) AS en_grupo,
            (SELECT COUNT(*) FROM tiquets t2 WHERE t2.id_usuario=? AND t2.id<=t.id) AS num_usuario
     FROM tiquets t
     LEFT JOIN compras c ON c.id_tiquet=t.id AND c.es_descuento=0
@@ -636,10 +705,22 @@ app.post('/login', async (req,res) => {
     if (!u || !bcryptjs.compareSync(password, u.password_hash) || !u.activo)
       return res.redirect('/login?error=Usuario+o+contraseña+incorrectos');
     if (u.totp_enabled) {
-      req.session.totp_pending = { id: u.id, username: u.username, email: u.email, avatar: u.avatar || null };
+      req.session.totp_pending = {
+        id: u.id,
+        username: u.username,
+        email: u.email,
+        avatar: u.avatar || null,
+        es_admin: u.es_admin === 1,
+      };
       return res.redirect('/login/2fa');
     }
-    req.session.usuario = { id: u.id, username: u.username, email: u.email, avatar: u.avatar || null };
+    req.session.usuario = {
+      id: u.id,
+      username: u.username,
+      email: u.email,
+      avatar: u.avatar || null,
+      es_admin: u.es_admin === 1,
+    };
     return res.redirect('/dashboard');
   } catch(e) { console.error('[Auth]', e.message); res.redirect('/login?error=Error+servidor'); }
 });
@@ -789,6 +870,7 @@ app.post('/tiquet/:uuid/eliminar', auth, async (req,res) => {
     if (!t) { conn.release(); return res.redirect('/dashboard?error=No+encontrado'); }
     await conn.beginTransaction();
     await conn.execute('DELETE FROM compras WHERE id_tiquet=?', [t.id]);
+    await conn.execute('DELETE FROM tiquets_grupos WHERE tiquet_id = ?', [t.id]);
     await conn.execute('DELETE FROM tiquets WHERE id=? AND id_usuario=?', [t.id, uid]);
     await conn.commit();
     res.redirect('/dashboard?success=Eliminado');
@@ -796,16 +878,22 @@ app.post('/tiquet/:uuid/eliminar', auth, async (req,res) => {
 });
 
 // ── PRODUCTOS ────────────────────────────────────────────────
-app.get('/opf/wizard', auth, (req, res) => {
-  res.render('opf_wizard.html', { ...navLocals(req), messages: [] });
-});
-
 app.get('/productos', auth, async (req, res) => {
   const uid = req.session.usuario.id;
   const { pais = '', supermercado = '' } = req.query;
   try {
     const productos = await getProductosUsuario(uid, pais, supermercado);
     productos.forEach(p => p.tienda = normalizarTienda(p.tienda));
+
+    const [enGrupos] = await dbPool.execute(`
+      SELECT DISTINCT c.id_producto AS id_producto
+      FROM compras c
+      JOIN tiquets t ON t.id = c.id_tiquet
+      JOIN tiquets_grupos tg ON tg.tiquet_id = t.id
+      WHERE t.id_usuario = ? AND c.es_descuento = 0
+    `, [uid]);
+    const idsEnGrupos = new Set(enGrupos.map(r => r.id_producto));
+    productos.forEach(p => { p.en_grupo = idsEnGrupos.has(p.id_producto_maestro); });
 
     const idsMaestros =[...new Set(productos.map(p => p.id_producto_maestro))];
     let verifMap = {};
@@ -832,6 +920,45 @@ app.get('/productos', auth, async (req, res) => {
       filtro_pais: pais, filtro_supermercado: supermercado, messages: [],
     });
   } catch(e) { console.error('[Productos]', e.message); res.redirect('/dashboard'); }
+});
+
+app.get('/productos/verificar', auth, adminPageOnly, async (req, res) => {
+  try {
+    const [pendientes] = await dbPool.execute(`
+      SELECT vb.id, vb.codigo_barras, vb.votos_si, vb.votos_no, vb.estado, vb.creado_en,
+             pm.id AS id_producto, pm.nombre, pm.marca, pm.foto_url
+      FROM verificaciones_barcode vb
+      JOIN productos_maestros pm ON pm.id = vb.id_producto
+      WHERE vb.estado = 'pendiente'
+      ORDER BY vb.creado_en DESC
+    `);
+    const [pendientesBaja] = await dbPool.execute(`
+      SELECT vp.id, vp.creado_en, vp.motivo,
+             pm.id AS id_producto, pm.nombre, pm.marca, pm.foto_url
+      FROM verificaciones_producto vp
+      JOIN productos_maestros pm ON pm.id = vp.id_producto
+      WHERE vp.estado = 'pendiente'
+      ORDER BY vp.creado_en DESC
+    `);
+    const [pendientesOpf] = await dbPool.execute(`
+      SELECT op.id, op.ean, op.nombre, op.marca, op.foto_path, op.creado_en,
+             u.username AS usuario
+      FROM opf_pendientes op
+      JOIN usuarios u ON u.id = op.id_usuario
+      WHERE op.estado = 'pendiente'
+      ORDER BY op.creado_en DESC
+    `);
+    res.render('productos_verificar.html', {
+      ...navLocals(req),
+      pendientes,
+      pendientes_baja: pendientesBaja,
+      pendientes_opf: pendientesOpf,
+      messages: [],
+    });
+  } catch (e) {
+    console.error('[VerificarProductos]', e.message);
+    res.redirect('/dashboard?error=Error+al+cargar+verificaciones');
+  }
 });
 
 app.get('/api/producto/:id/precios', auth, async (req, res) => {
@@ -1128,11 +1255,34 @@ app.post('/api/opf/create', auth, (req, res) => {
     if (status !== 'draft' && status !== 'ready') return res.status(400).json({ error: 'Estado inválido' });
     if (status === 'ready' && !file) return res.status(400).json({ error: 'Foto obligatoria para enviar' });
 
+    const esAdmin = !!req.session.usuario?.es_admin;
     let estado = status === 'ready' ? 'sent' : 'draft';
     let opfResponse = null;
     let errorMsg = null;
     let fotoPath = null;
     let localProductId = null;
+
+    if (status === 'ready' && !esAdmin) {
+      try {
+        if (file) fotoPath = await persistOpfFile(file);
+        localProductId = await upsertProductoMaestroFromOpf({ ean, nombre, marca, foto_url: null });
+      } catch (e) {
+        console.warn('[OPF] Pendiente local fallido:', e.message);
+      }
+
+      const [pend] = await dbPool.execute(
+        `INSERT INTO opf_pendientes (id_usuario, ean, nombre, marca, foto_path)
+         VALUES (?,?,?,?,?)`,
+        [req.session.usuario.id, ean, nombre, marca, fotoPath]
+      );
+
+      return res.json({
+        success: true,
+        pending: true,
+        pending_id: pend.insertId,
+        local_product_id: localProductId,
+      });
+    }
 
     try {
       if (status === 'ready') {
@@ -1279,6 +1429,56 @@ app.post('/api/compras/vincular', auth, async (req, res) => {
   }
 });
 
+app.post('/api/compras/:idCompra/desvincular', auth, async (req, res) => {
+  const uid = req.session.usuario.id;
+  const idCompra = parseInt(req.params.idCompra, 10);
+  if (!Number.isFinite(idCompra)) return res.status(400).json({ error: 'ID inválido' });
+
+  const conn = await dbPool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const [[compra]] = await conn.execute(
+      `SELECT id, id_usuario, id_producto, nombre_original
+       FROM compras WHERE id = ? AND id_usuario = ?`,
+      [idCompra, uid]
+    );
+
+    if (!compra) {
+      await conn.rollback();
+      return res.status(404).json({ error: 'Compra no encontrada' });
+    }
+
+    const nombreBase = (compra.nombre_original || 'Producto sin vincular').trim().toUpperCase();
+    const [ins] = await conn.execute(
+      'INSERT INTO productos_maestros (nombre, marca, categoria) VALUES (?,?,?)',
+      [nombreBase.slice(0, 200), 'Generica', 'Otros']
+    );
+
+    await conn.execute(
+      'UPDATE compras SET id_producto = ?, curado = 0 WHERE id = ?',
+      [ins.insertId, idCompra]
+    );
+
+    if (compra.id_producto) {
+      await conn.execute(
+        `INSERT INTO verificaciones_producto (id_producto, id_usuario, motivo)
+         VALUES (?,?,?)`,
+        [compra.id_producto, uid, 'Desvinculado por usuario']
+      );
+    }
+
+    await conn.commit();
+    res.json({ success: true, id_producto: ins.insertId });
+  } catch (e) {
+    await conn.rollback();
+    console.error('[Desvincular]', e.message);
+    res.status(500).json({ error: 'Error desvinculando compra' });
+  } finally {
+    conn.release();
+  }
+});
+
 // --- 8. VOTAR VERIFICACIONES DE CÓDIGO DE BARRAS ---
 app.post('/api/verificaciones/votar', auth, async (req, res) => {
   const { id_verificacion, voto } = req.body;
@@ -1299,6 +1499,201 @@ app.post('/api/verificaciones/votar', auth, async (req, res) => {
     const [[updated]] = await dbPool.execute('SELECT votos_si, votos_no, estado FROM verificaciones_barcode WHERE id = ?',[id_verificacion]);
     res.json({ success: true, ...updated });
   } catch(e) { await conn.rollback(); console.error('[Votar]', e.message); res.status(500).json({ error: e.message }); } finally { conn.release(); }
+});
+
+app.post('/api/verificaciones/admin', auth, adminOnly, async (req, res) => {
+  const idVerificacion = parseInt(req.body.id_verificacion, 10);
+  const accion = String(req.body.accion || '').toLowerCase();
+  if (!Number.isFinite(idVerificacion)) return res.status(400).json({ error: 'ID inválido' });
+  if (!['aprobar', 'rechazar'].includes(accion)) return res.status(400).json({ error: 'Acción inválida' });
+
+  const conn = await dbPool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const [[verif]] = await conn.execute(
+      'SELECT id, id_producto, codigo_barras, estado FROM verificaciones_barcode WHERE id = ? FOR UPDATE',
+      [idVerificacion]
+    );
+
+    if (!verif || verif.estado !== 'pendiente') {
+      await conn.rollback();
+      return res.status(404).json({ error: 'Verificación no encontrada o ya cerrada' });
+    }
+
+    if (accion === 'aprobar') {
+      await conn.execute("UPDATE verificaciones_barcode SET estado = 'verificado' WHERE id = ?", [idVerificacion]);
+      await conn.execute(
+        'UPDATE productos_maestros SET codigo_barras = ? WHERE id = ?',
+        [verif.codigo_barras, verif.id_producto]
+      );
+    } else {
+      await conn.execute("UPDATE verificaciones_barcode SET estado = 'rechazado' WHERE id = ?", [idVerificacion]);
+      await conn.execute(
+        'UPDATE productos_maestros SET codigo_barras = NULL WHERE id = ? AND codigo_barras = ?',
+        [verif.id_producto, verif.codigo_barras]
+      );
+    }
+
+    await conn.commit();
+    res.json({ success: true, estado: accion === 'aprobar' ? 'verificado' : 'rechazado' });
+  } catch (e) {
+    await conn.rollback();
+    console.error('[VerificacionAdmin]', e.message);
+    res.status(500).json({ error: 'Error actualizando verificación' });
+  } finally {
+    conn.release();
+  }
+});
+
+app.post('/api/verificaciones/admin/crear', auth, adminOnly, async (req, res) => {
+  const idProducto = parseInt(req.body.id_producto, 10);
+  const codigo = normalizarEan(req.body.codigo_barras);
+  if (!Number.isFinite(idProducto)) return res.status(400).json({ error: 'ID inválido' });
+  if (!/^[0-9]{8,14}$/.test(codigo)) return res.status(400).json({ error: 'EAN inválido' });
+
+  const conn = await dbPool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [[prod]] = await conn.execute('SELECT id FROM productos_maestros WHERE id = ? FOR UPDATE', [idProducto]);
+    if (!prod) { await conn.rollback(); return res.status(404).json({ error: 'Producto no encontrado' }); }
+
+    await conn.execute('UPDATE productos_maestros SET codigo_barras = ? WHERE id = ?', [codigo, idProducto]);
+    await conn.execute(
+      `INSERT INTO verificaciones_barcode (id_producto, codigo_barras, votos_si)
+       VALUES (?,?,0)
+       ON DUPLICATE KEY UPDATE estado = 'pendiente'`,
+      [idProducto, codigo]
+    );
+
+    await conn.commit();
+    res.json({ success: true });
+  } catch (e) {
+    await conn.rollback();
+    console.error('[VerificacionAdminCrear]', e.message);
+    res.status(500).json({ error: 'Error creando referencia' });
+  } finally {
+    conn.release();
+  }
+});
+
+app.post('/api/opf/pending/approve', auth, adminOnly, async (req, res) => {
+  const idPendiente = parseInt(req.body.id_pendiente, 10);
+  if (!Number.isFinite(idPendiente)) return res.status(400).json({ error: 'ID inválido' });
+
+  const conn = await dbPool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const [[pend]] = await conn.execute(
+      `SELECT * FROM opf_pendientes WHERE id = ? FOR UPDATE`,
+      [idPendiente]
+    );
+
+    if (!pend || pend.estado !== 'pendiente') {
+      await conn.rollback();
+      return res.status(404).json({ error: 'Pendiente no encontrado o ya procesado' });
+    }
+
+    let opfResponse = null;
+    let errorMsg = null;
+
+    try {
+      const productoRes = await enviarOpfProducto({ ean: pend.ean, nombre: pend.nombre, marca: pend.marca });
+      let imagenRes = null;
+      if (pend.foto_path) {
+        const fullPath = path.join(__dirname, pend.foto_path);
+        const buffer = await fs.promises.readFile(fullPath);
+        const ext = path.extname(pend.foto_path).toLowerCase();
+        const mimetype = ext === '.png' ? 'image/png' : (ext === '.webp' ? 'image/webp' : 'image/jpeg');
+        imagenRes = await enviarOpfImagen({ ean: pend.ean, file: { buffer, originalname: path.basename(pend.foto_path), mimetype } });
+      }
+      opfResponse = { producto: productoRes, imagen: imagenRes };
+      await conn.execute(
+        "UPDATE opf_pendientes SET estado = 'enviado', opf_response = ?, error_msg = NULL WHERE id = ?",
+        [JSON.stringify(opfResponse).slice(0, 4000), idPendiente]
+      );
+    } catch (e) {
+      errorMsg = e.message || 'Error enviando a OPF';
+      await conn.execute(
+        "UPDATE opf_pendientes SET estado = 'fallido', error_msg = ? WHERE id = ?",
+        [errorMsg.slice(0, 500), idPendiente]
+      );
+    }
+
+    await conn.commit();
+    if (errorMsg) return res.status(502).json({ error: errorMsg });
+    res.json({ success: true });
+  } catch (e) {
+    await conn.rollback();
+    console.error('[OpfApprove]', e.message);
+    res.status(500).json({ error: 'Error aprobando pendiente' });
+  } finally {
+    conn.release();
+  }
+});
+
+app.post('/api/opf/pending/reject', auth, adminOnly, async (req, res) => {
+  const idPendiente = parseInt(req.body.id_pendiente, 10);
+  if (!Number.isFinite(idPendiente)) return res.status(400).json({ error: 'ID inválido' });
+  try {
+    const [r] = await dbPool.execute(
+      "UPDATE opf_pendientes SET estado = 'rechazado' WHERE id = ? AND estado = 'pendiente'",
+      [idPendiente]
+    );
+    if (r.affectedRows === 0) return res.status(404).json({ error: 'Pendiente no encontrado o ya procesado' });
+    res.json({ success: true });
+  } catch (e) {
+    console.error('[OpfReject]', e.message);
+    res.status(500).json({ error: 'Error rechazando pendiente' });
+  }
+});
+
+app.post('/api/verificaciones/producto/admin', auth, adminOnly, async (req, res) => {
+  const idVerificacion = parseInt(req.body.id_verificacion, 10);
+  const accion = String(req.body.accion || '').toLowerCase();
+  if (!Number.isFinite(idVerificacion)) return res.status(400).json({ error: 'ID inválido' });
+  if (!['eliminar', 'rechazar', 'desvincular'].includes(accion)) return res.status(400).json({ error: 'Acción inválida' });
+
+  const conn = await dbPool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const [[verif]] = await conn.execute(
+      `SELECT vp.id, vp.id_producto, vp.estado
+       FROM verificaciones_producto vp
+       WHERE vp.id = ? FOR UPDATE`,
+      [idVerificacion]
+    );
+
+    if (!verif || verif.estado !== 'pendiente') {
+      await conn.rollback();
+      return res.status(404).json({ error: 'Verificación no encontrada o ya cerrada' });
+    }
+
+    if (accion === 'eliminar') {
+      await conn.execute("UPDATE verificaciones_producto SET estado = 'eliminado' WHERE id = ?", [idVerificacion]);
+      await conn.execute('DELETE FROM diccionario_productos WHERE id_producto_maestro = ?', [verif.id_producto]);
+      await conn.execute('UPDATE compras SET id_producto = NULL, curado = 0 WHERE id_producto = ?', [verif.id_producto]);
+      await conn.execute('DELETE FROM productos_maestros WHERE id = ?', [verif.id_producto]);
+    } else if (accion === 'desvincular') {
+      await conn.execute("UPDATE verificaciones_producto SET estado = 'desvinculado' WHERE id = ?", [idVerificacion]);
+      await conn.execute('DELETE FROM diccionario_productos WHERE id_producto_maestro = ?', [verif.id_producto]);
+      await conn.execute('UPDATE compras SET id_producto = NULL, curado = 0 WHERE id_producto = ?', [verif.id_producto]);
+    } else {
+      await conn.execute("UPDATE verificaciones_producto SET estado = 'rechazado' WHERE id = ?", [idVerificacion]);
+    }
+
+    await conn.commit();
+    const estadoFinal = accion === 'eliminar' ? 'eliminado' : (accion === 'desvincular' ? 'desvinculado' : 'rechazado');
+    res.json({ success: true, estado: estadoFinal });
+  } catch (e) {
+    await conn.rollback();
+    console.error('[VerificacionProductoAdmin]', e.message);
+    res.status(500).json({ error: 'Error actualizando verificación' });
+  } finally {
+    conn.release();
+  }
 });
 
 // ── EDITAR PRECIO DE UNA LÍNEA DE COMPRA ─────────────────────

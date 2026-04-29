@@ -13,6 +13,26 @@
 
 .hidden { display: none; }
 
+.group-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.68rem;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(16, 185, 129, 0.55);
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.18);
+  color: #0f766e;
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(34, 197, 94, 0.08));
+  letter-spacing: 0.02em;
+}
+html.dark .group-chip {
+  border-color: rgba(45, 212, 191, 0.6);
+  box-shadow: 0 0 0 2px rgba(45, 212, 191, 0.2);
+  color: #5eead4;
+  background: linear-gradient(135deg, rgba(20, 184, 166, 0.18), rgba(34, 197, 94, 0.12));
+}
+
 /* ── Panel lateral (Vincular + Precios) ─────────────────────────────────── */
 .panel-lateral {
   position: fixed; top: 0; right: 0; bottom: 0;

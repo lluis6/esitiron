@@ -50,6 +50,27 @@
   font-size: 0.72rem; font-weight: 800; color: var(--text2);
 }
 
+.tiquet-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-left: 6px;
+  padding: 4px 9px;
+  font-size: 0.68rem;
+  border-radius: 999px;
+  border: 1px solid rgba(59, 130, 246, 0.6);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.18);
+  color: #1d4ed8;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(14, 165, 233, 0.1));
+  letter-spacing: 0.02em;
+}
+html.dark .tiquet-badge {
+  border-color: rgba(147, 197, 253, 0.6);
+  box-shadow: 0 0 0 2px rgba(147, 197, 253, 0.2);
+  color: #93c5fd;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.18), rgba(14, 165, 233, 0.12));
+}
+
 /* Chevron hover effect */
 .tiquet-item .chevron-icon { color: var(--text3); flex-shrink: 0; transition: color 0.15s ease, transform 0.15s ease; }
 .tiquet-item:hover .chevron-icon { color: var(--accent); transform: translateX(3px); }

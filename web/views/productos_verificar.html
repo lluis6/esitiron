@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Esitiron — Verificar referencias</title>
+  <script src="/js/theme.js"></script>
+  <link rel="stylesheet" href="/css/main.css">
+  <link rel="stylesheet" href="/css/class/todos_productos.css?v=20260428-2">
+  <link rel="icon" type="image/png" href="/img/logo.jpg">
+  <style>
+    .verif-actions { display:flex; gap:0.5rem; }
+    .verif-row img { width:40px; height:40px; object-fit:contain; border-radius:6px; border:1px solid var(--border); background:white; }
+    .badge-mini { font-size:0.72rem; padding:3px 8px; border-radius:999px; border:1px solid var(--border); background:var(--surface2); color:var(--text2); }
+  </style>
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="nav-links">
+    <a href="/dashboard" class="nav-link">📊 Dashboard</a>
+    <a href="/tiquets" class="nav-link">🧾 Tiquets</a>
+    <a href="/productos" class="nav-link active">🛍️ Productos</a>
+    <a href="/grupos" class="nav-link">👥 Grupos</a>
+  </div>
+  <div class="nav-right">
+    <div class="user-menu-wrap" id="userMenuWrap">
+      <div class="nav-user" id="userTrigger" onclick="toggleMenu()">
+        {% if avatar_url %}
+          <img src="{{ avatar_url }}" class="avatar" style="object-fit:cover;" alt="avatar">
+        {% else %}
+          <div class="avatar">{{ usuario[0] | upper }}</div>
+        {% endif %}
+        <span class="nav-username">{{ usuario }}</span>
+      </div>
+      <div class="user-dropdown" id="userDropdown">
+        <div class="ud-header">
+          <div class="ud-name">{{ usuario }}</div>
+          <div class="ud-email">{{ usuario_email }}</div>
+        </div>
+        <a href="/perfil" class="ud-item">👤 Mi perfil</a>
+        <div class="ud-divider"></div>
+        <a href="/logout" class="ud-item danger">⏻ Cerrar sesion</a>
+      </div>
+    </div>
+    <button class="theme-toggle" id="theme-toggle" title="Cambiar tema">
+      <span id="icon-sun">☀️</span>
+      <span id="icon-moon" style="display:none">🌙</span>
+    </button>
+  </div>
+</nav>
+
+<main class="main">
+  <div class="page-header" style="display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap;">
+    <div>
+      <h1 class="page-title">Verificar referencias</h1>
+      <p class="page-subtitle">Revisa asociaciones de codigos de barras pendientes.</p>
+    </div>
+    <div style="flex-shrink:0;">
+      <a href="/productos" class="btn-clear-filters" style="margin-top:0.6rem; display:inline-flex;">← Volver a productos</a>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:1.5rem; padding:1rem;">
+    <div style="font-weight:700; margin-bottom:0.6rem;">Crear referencia manual</div>
+    <div style="display:flex; gap:0.6rem; flex-wrap:wrap;">
+      <input type="number" id="refProductoId" class="wizard-input" placeholder="ID producto" style="max-width:160px;">
+      <input type="text" id="refCodigo" class="wizard-input" placeholder="EAN/UPC">
+      <button class="btn-accion" onclick="crearReferenciaAdmin()">➕ Crear referencia</button>
+    </div>
+    <div style="font-size:0.8rem; color:var(--text3); margin-top:0.4rem;">Se crea como pendiente para revision.</div>
+  </div>
+
+  {% if messages and messages.length > 0 %}
+  <div class="flashes">
+    {% for msg in messages %}
+    <div class="flash {{ msg[0] }}">{{ msg[1] }}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="card table-container">
+    <table>
+      <thead>
+        <tr>
+          <th>Producto</th>
+          <th>Codigo</th>
+          <th>Votos</th>
+          <th>Creado</th>
+          <th>Acciones</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for v in pendientes %}
+        <tr class="verif-row">
+          <td>
+            <div style="display:flex; align-items:center; gap:10px;">
+              {% if v.foto_url %}
+                <img src="{{ v.foto_url }}" alt="">
+              {% endif %}
+              <div>
+                <div style="font-weight:700; font-size:0.95rem; color:var(--text);">{{ v.nombre }}</div>
+                {% if v.marca %}
+                  <small style="color:var(--text2); font-size:0.78rem;">{{ v.marca | lower }}</small>
+                {% endif %}
+              </div>
+            </div>
+          </td>
+          <td><span class="badge-mini">{{ v.codigo_barras }}</span></td>
+          <td><span class="badge-mini">{{ v.votos_si }} ✓ / {{ v.votos_no }} ✗</span></td>
+          <td>{{ v.creado_en | formatDate }}</td>
+          <td>
+            <div class="verif-actions">
+              <button class="btn-accion" onclick="accionVerif({{ v.id }}, 'aprobar')">✅ Aprobar</button>
+              <button class="btn-accion" onclick="accionVerif({{ v.id }}, 'rechazar')">✗ Rechazar</button>
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="5" style="text-align:center; padding:2.5rem; color:var(--text3);">
+            No hay verificaciones pendientes.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card table-container" style="margin-top:1.5rem;">
+    <table>
+      <thead>
+        <tr>
+          <th>Producto</th>
+          <th>EAN</th>
+          <th>Solicitado por</th>
+          <th>Creado</th>
+          <th>Acciones</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in pendientes_opf %}
+        <tr class="verif-row">
+          <td>
+            <div style="display:flex; align-items:center; gap:10px;">
+              <div>
+                <div style="font-weight:700; font-size:0.95rem; color:var(--text);">{{ p.nombre }}</div>
+                {% if p.marca %}
+                  <small style="color:var(--text2); font-size:0.78rem;">{{ p.marca | lower }}</small>
+                {% endif %}
+                {% if p.foto_path %}
+                  <small style="color:var(--text3); font-size:0.75rem; display:block;">Foto subida</small>
+                {% endif %}
+              </div>
+            </div>
+          </td>
+          <td><span class="badge-mini">{{ p.ean }}</span></td>
+          <td><span class="badge-mini">{{ p.usuario }}</span></td>
+          <td>{{ p.creado_en | formatDate }}</td>
+          <td>
+            <div class="verif-actions">
+              <button class="btn-accion" onclick="accionOpf({{ p.id }}, 'aprobar')">✅ Aprobar</button>
+              <button class="btn-accion" onclick="accionOpf({{ p.id }}, 'rechazar')">✗ Rechazar</button>
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="5" style="text-align:center; padding:2.5rem; color:var(--text3);">
+            No hay productos OPF pendientes.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card table-container" style="margin-top:1.5rem;">
+    <table>
+      <thead>
+        <tr>
+          <th>Producto</th>
+          <th>Motivo</th>
+          <th>Creado</th>
+          <th>Acciones</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for v in pendientes_baja %}
+        <tr class="verif-row">
+          <td>
+            <div style="display:flex; align-items:center; gap:10px;">
+              {% if v.foto_url %}
+                <img src="{{ v.foto_url }}" alt="">
+              {% endif %}
+              <div>
+                <div style="font-weight:700; font-size:0.95rem; color:var(--text);">{{ v.nombre }}</div>
+                {% if v.marca %}
+                  <small style="color:var(--text2); font-size:0.78rem;">{{ v.marca | lower }}</small>
+                {% endif %}
+              </div>
+            </div>
+          </td>
+          <td><span class="badge-mini">{{ v.motivo or 'Sin motivo' }}</span></td>
+          <td>{{ v.creado_en | formatDate }}</td>
+          <td>
+            <div class="verif-actions">
+              <button class="btn-accion" onclick="accionBaja({{ v.id }}, 'desvincular')">🔗 Quitar referencia</button>
+              <button class="btn-accion" onclick="accionBaja({{ v.id }}, 'eliminar')">🗑️ Eliminar producto</button>
+              <button class="btn-accion" onclick="accionBaja({{ v.id }}, 'rechazar')">↩️ Mantener</button>
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="4" style="text-align:center; padding:2.5rem; color:var(--text3);">
+            No hay bajas pendientes.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</main>
+
+<script>
+function toggleMenu() { document.getElementById('userDropdown').classList.toggle('open'); }
+document.addEventListener('click', e => {
+  const w = document.getElementById('userMenuWrap');
+  if (w && !w.contains(e.target)) document.getElementById('userDropdown').classList.remove('open');
+});
+
+async function accionVerif(id, accion) {
+  const ok = confirm(`¿Confirmas ${accion} esta referencia?`);
+  if (!ok) return;
+  try {
+    const res = await fetch('/api/verificaciones/admin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id_verificacion: id, accion })
+    });
+    const data = await res.json();
+    if (res.ok) location.reload();
+    else alert(data.error || 'No se pudo actualizar la verificacion');
+  } catch (e) {
+    alert('No se pudo actualizar la verificacion');
+  }
+}
+
+async function crearReferenciaAdmin() {
+  const idProducto = document.getElementById('refProductoId').value.trim();
+  const codigo = document.getElementById('refCodigo').value.trim();
+  if (!idProducto || !codigo) {
+    alert('Completa el ID de producto y el codigo.');
+    return;
+  }
+  const ok = confirm('¿Crear referencia y dejarla pendiente de revision?');
+  if (!ok) return;
+
+  try {
+    const res = await fetch('/api/verificaciones/admin/crear', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id_producto: Number(idProducto), codigo_barras: codigo })
+    });
+    const data = await res.json();
+    if (res.ok) location.reload();
+    else alert(data.error || 'No se pudo crear la referencia');
+  } catch (e) {
+    alert('No se pudo crear la referencia');
+  }
+}
+
+async function accionBaja(id, accion) {
+  const etiquetas = {
+    eliminar: 'eliminar este producto',
+    desvincular: 'quitar la referencia sin borrar el producto',
+    rechazar: 'mantener el producto',
+  };
+  const ok = confirm(`¿Confirmas ${etiquetas[accion] || accion}?`);
+  if (!ok) return;
+  try {
+    const res = await fetch('/api/verificaciones/producto/admin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id_verificacion: id, accion })
+    });
+    const data = await res.json();
+    if (res.ok) location.reload();
+    else alert(data.error || 'No se pudo actualizar la baja');
+  } catch (e) {
+    alert('No se pudo actualizar la baja');
+  }
+}
+
+async function accionOpf(id, accion) {
+  const ok = confirm(`¿Confirmas ${accion} este envio a OPF?`);
+  if (!ok) return;
+  const endpoint = accion === 'aprobar' ? '/api/opf/pending/approve' : '/api/opf/pending/reject';
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id_pendiente: id })
+    });
+    const data = await res.json();
+    if (res.ok) location.reload();
+    else alert(data.error || 'No se pudo procesar el pendiente');
+  } catch (e) {
+    alert('No se pudo procesar el pendiente');
+  }
+}
+</script>
+</body>
+</html>

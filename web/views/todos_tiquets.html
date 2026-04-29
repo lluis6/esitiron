@@ -113,7 +113,12 @@
         <div class="tiquet-num">#{{ tiquet.num_usuario }}</div>
 
         <div class="tiquet-info">
-          <div class="tiquet-tienda">{{ tiquet.supermercado }}</div>
+          <div class="tiquet-tienda">
+            {{ tiquet.supermercado }}
+            {% if tiquet.en_grupo %}
+              <span class="tiquet-badge">👥 En grupo</span>
+            {% endif %}
+          </div>
           <div class="tiquet-fecha">{{ tiquet.fecha_compra | formatDate }}</div>
         </div>
 

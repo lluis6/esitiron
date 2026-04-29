@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS usuarios (
     avatar          VARCHAR(255)    DEFAULT NULL,
     totp_secret     VARCHAR(255)    DEFAULT NULL,
     totp_enabled    TINYINT(1)      NOT NULL DEFAULT 0,
+    es_admin        TINYINT(1)      NOT NULL DEFAULT 0,
     fecha_registro  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     activo          TINYINT(1)      NOT NULL DEFAULT 1,
     PRIMARY KEY (id)
@@ -162,6 +163,37 @@ CREATE TABLE IF NOT EXISTS votos_usuario (
     UNIQUE KEY uk_usuario_verif (id_usuario, id_verificacion),
     FOREIGN KEY (id_usuario) REFERENCES usuarios(id) ON DELETE CASCADE,
     FOREIGN KEY (id_verificacion) REFERENCES verificaciones_barcode(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS verificaciones_producto (
+    id              INT UNSIGNED    NOT NULL AUTO_INCREMENT,
+    id_producto     INT UNSIGNED    NOT NULL,
+    id_usuario      INT UNSIGNED    NOT NULL,
+    motivo          VARCHAR(255)    DEFAULT NULL,
+    estado          ENUM('pendiente','rechazado','eliminado','desvinculado') NOT NULL DEFAULT 'pendiente',
+    creado_en       DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    INDEX idx_producto_estado (id_producto, estado),
+    FOREIGN KEY (id_producto) REFERENCES productos_maestros(id) ON DELETE CASCADE,
+    FOREIGN KEY (id_usuario) REFERENCES usuarios(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS opf_pendientes (
+    id             INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    id_usuario     INT UNSIGNED NOT NULL,
+    ean            VARCHAR(50)  NOT NULL,
+    nombre         VARCHAR(200) NOT NULL,
+    marca          VARCHAR(100) NOT NULL,
+    foto_path      VARCHAR(255) DEFAULT NULL,
+    estado         ENUM('pendiente','enviado','rechazado','fallido') NOT NULL DEFAULT 'pendiente',
+    opf_response   TEXT         DEFAULT NULL,
+    error_msg      VARCHAR(500) DEFAULT NULL,
+    creado_en      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    actualizado_en DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    INDEX idx_opf_pend_usuario (id_usuario),
+    INDEX idx_opf_pend_estado (estado),
+    FOREIGN KEY (id_usuario) REFERENCES usuarios(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
 -- ─────────────────────────────────────────────────────────────

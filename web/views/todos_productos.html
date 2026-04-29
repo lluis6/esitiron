@@ -135,10 +135,10 @@
       {% endif %}
     </div>
 
-    {% if not es_grupo %}
+    {% if not es_grupo and es_admin %}
     <div style="flex-shrink: 0;">
-      <a href="/opf/wizard" class="btn-primary" style="padding: 0.6rem 1.2rem; text-decoration: none; border-radius: 8px; font-weight: 600;">
-        + Anadir a OPF
+      <a href="/productos/verificar" class="btn-primary" style="padding: 0.6rem 1.2rem; text-decoration: none; border-radius: 8px; font-weight: 600;">
+        🔍 Verificar referencias
       </a>
     </div>
     {% endif %}
@@ -217,6 +217,9 @@
                 {% if p.marca and p.marca != 'GENÉRICO' %}
                   <small style="color:var(--text2); font-size:0.78rem;">{{ p.marca | lower | replace('genérico','') | trim }}</small>
                 {% endif %}
+                {% if not es_grupo and p.en_grupo %}
+                  <span class="group-chip" style="margin-left:6px;">👥 En grupo</span>
+                {% endif %}
                 <br>
                 <small style="color:var(--text3); font-size:0.72rem;">{{ p.nombre_original }}</small>
 
@@ -275,6 +278,12 @@
                       data-original="{{ p.nombre_original | e }}"
                       onclick="abrirVincularDesdeBtn(this)">
                 🔗 Vincular
+              </button>
+              <button class="btn-accion"
+                      data-id-compra="{{ p.id_compra }}"
+                      data-original="{{ p.nombre_original | e }}"
+                      onclick="desvincularDesdeBtn(this)">
+                ↩️ Desvincular
               </button>
               {% endif %}
             </div>
@@ -387,6 +396,11 @@ let currentIdCompra = null;
 let buscarTimer = null;
 let eanLookupProduct = null;
 
+function confirmarReferenciaBarcode(ean, nombre) {
+  const etiqueta = nombre ? `\nProducto: ${nombre}` : '';
+  return confirm(`¿Confirmas asociar el codigo ${ean} a este producto?${etiqueta}\nQuedara pendiente de verificacion admin.`);
+}
+
 function abrirVincular(id, original) {
   currentIdCompra = id;
   document.getElementById('vpOriginalLabel').textContent = original;
@@ -479,6 +493,10 @@ async function buscarEAN() {
       };
 
       renderEanFound(eanLookupProduct);
+      if (!confirmarReferenciaBarcode(eanLookupProduct.ean, eanLookupProduct.nombre)) {
+        setEanStatus('Operacion cancelada.', 'info');
+        return;
+      }
       setEanStatus('Producto encontrado. Vinculando...', 'loading');
       await vincularEanExistente();
       return;
@@ -564,6 +582,11 @@ async function crearYVincularEAN(e) {
     return;
   }
 
+  if (!confirmarReferenciaBarcode(ean, nombre)) {
+    setEanStatus('Operacion cancelada.', 'info');
+    return;
+  }
+
   const formData = new FormData();
   formData.append('ean', ean);
   formData.append('nombre', nombre);
@@ -577,6 +600,10 @@ async function crearYVincularEAN(e) {
     const res = await fetch('/api/opf/create', { method: 'POST', body: formData });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'No se pudo crear en OPF');
+
+    if (data.pending) {
+      setEanStatus('Producto enviado a revision admin.', 'info');
+    }
 
     if (data.local_product_id) {
       const linkRes = await fetch('/api/compras/vincular', {
@@ -690,6 +717,11 @@ async function vincular(p, isExternal) {
   if (isExternal) body.producto_externo = p;
   else body.id_producto_maestro = p.id;
 
+  if (isExternal && p.codigo_barras) {
+    const nombre = p.nombre || p.product_name || '';
+    if (!confirmarReferenciaBarcode(p.codigo_barras, nombre)) return;
+  }
+
   const res = await fetch('/api/compras/vincular', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -697,6 +729,21 @@ async function vincular(p, isExternal) {
   });
   if (res.ok) location.reload();
   else alert('Error al vincular');
+}
+
+async function desvincularCompra(idCompra, original) {
+  if (!idCompra) return;
+  const etiqueta = original ? `\nProducto: ${original}` : '';
+  const ok = confirm(`¿Seguro que quieres desvincular esta compra?${etiqueta}\nSolo afectara a este tiquet.`);
+  if (!ok) return;
+
+  try {
+    const res = await fetch(`/api/compras/${idCompra}/desvincular`, { method: 'POST' });
+    if (res.ok) location.reload();
+    else alert('No se pudo desvincular la compra');
+  } catch (e) {
+    alert('No se pudo desvincular la compra');
+  }
 }
 
 // ── OBJETIVO 3: Votar ─────────────────────────────────────────
@@ -780,6 +827,13 @@ function abrirVincularDesdeBtn(btn) {
   const original = btn?.dataset?.original || '';
   if (!idCompra) return;
   abrirVincular(idCompra, original);
+}
+
+function desvincularDesdeBtn(btn) {
+  const idCompra = btn?.dataset?.idCompra;
+  const original = btn?.dataset?.original || '';
+  if (!idCompra) return;
+  desvincularCompra(idCompra, original);
 }
 
 function votarDesdeBtn(btn) {
