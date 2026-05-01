@@ -113,7 +113,7 @@
           </thead>
           <tbody id="tbodyProductos">
             {% for p in productos %}
-            <tr class="{{ 'fila-descuento' if p.es_descuento else '' }}" data-categoria="{{ p.categoria }}">
+            <tr class="{{ 'fila-descuento' if p.es_descuento else '' }}" data-categoria="{{ p.categoria | e }}">
               <input type="hidden" name="productos[{{ loop.index0 }}][es_descuento]" value="{{ '1' if p.es_descuento else '0' }}">
               <input type="hidden" name="productos[{{ loop.index0 }}][nombre_ocr]" value="{{ p.nombre_ocr | default(p.producto) }}">
               
