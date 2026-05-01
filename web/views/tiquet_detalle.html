@@ -128,18 +128,21 @@
               data-id-compra="{{ p.id_compra }}"
               data-cantidad="{{ p.cantidad }}"
               data-precio-original="{{ p.precio | format }}"
+              data-es-peso="{{ '1' if p.categoria == 'Fruta/Verdura' else '0' }}"
               data-idx="{{ loop.index0 }}">
 
             <!-- Cant. -->
             <td class="cell-static">
-              <span class="qty-pill">{{ p.cantidad | smartCant }}</span>
+              <span class="qty-pill">
+                {{ p.cantidad | smartCant }}{% if p.categoria == 'Fruta/Verdura' %} kg{% endif %}
+              </span>
             </td>
             <td class="cell-editable" style="display:none;">
               <input type="number" 
                      class="edit-input input-cant" 
                      data-idx="{{ loop.index0 }}"
                      value="{{ p.cantidad }}" 
-                     step="1" 
+                     step="{{ '0.001' if p.categoria == 'Fruta/Verdura' else '1' }}" 
                      oninput="recalcularDetalle()">
             </td>
 
@@ -161,7 +164,7 @@
             <!-- Precio unitario: estático + editable -->
             <td class="cell-static right precio-cell">
               <span class="precio-static {{ 'price-red' if p.precio < 0 else '' }}">
-                {{ p.precio | format }} €
+                {{ p.precio | format }} {% if p.categoria == 'Fruta/Verdura' %}€/kg{% else %}€{% endif %}
               </span>
               <span class="precio-feedback" id="fb-{{ loop.index0 }}"></span>
             </td>
@@ -239,6 +242,16 @@
 const TIQUET_ID = '{{ tiquet.uuid }}';
 const filas = document.querySelectorAll('#tbodyProductos tr');
 
+function esFilaPeso(fila) {
+  return fila?.dataset?.esPeso === '1';
+}
+
+function formatCantidad(n) {
+  if (!Number.isFinite(n)) return '0';
+  if (Number.isInteger(n)) return String(n);
+  return n.toFixed(3).replace(/\.?0+$/, '');
+}
+
 // ── Menú usuario ──────────────────────────────────────────────
 function toggleMenu() { document.getElementById('userDropdown').classList.toggle('open'); }
 document.addEventListener('click', e => {
@@ -306,18 +319,18 @@ function recalcularDetalle() {
     
     if (!iCant || !iPrec) return;
 
-    // Cantidad entera
+    const esPeso = esFilaPeso(fila);
     let cantRaw = parseFloat(iCant.value.replace(',', '.')) || 0;
-    let cantEntero = Math.round(cantRaw);
-    if (iCant.value !== cantEntero.toString()) {
-      iCant.value = cantEntero;
+    let cantFinal = esPeso ? cantRaw : Math.round(cantRaw);
+    if (!esPeso && iCant.value !== cantFinal.toString()) {
+      iCant.value = cantFinal;
     }
     const labelCant = fila.querySelector('.qty-pill');
-    if (labelCant) labelCant.textContent = cantEntero;
+    if (labelCant) labelCant.textContent = formatCantidad(cantFinal) + (esPeso ? ' kg' : '');
 
     // Precio
     let prec = parseFloat(iPrec.value.replace(',', '.')) || 0;
-    const sub = cantEntero * prec;
+    const sub = cantFinal * prec;
     
     // Actualizar subtotal
     const inputSub = fila.querySelector('.subtotal-input');
@@ -369,7 +382,8 @@ async function guardarPrecio(idx, btnEl) {
 
       // Actualizar celda estática
       const staticSpan = fila.querySelector('.precio-static');
-      staticSpan.textContent = nuevoPrecio.toFixed(2) + ' €';
+      const unitSuffix = esFilaPeso(fila) ? ' €/kg' : ' €';
+      staticSpan.textContent = nuevoPrecio.toFixed(2) + unitSuffix;
       staticSpan.className = 'precio-static' + (nuevoPrecio < 0 ? ' price-red' : '');
 
       // Actualizar subtotal

@@ -37,7 +37,7 @@ fi
 DB_USER=${DB_USER}
 DB_PASS=${DB_PASSWORD}
 DB_NAME=${DB_NAME}
-CONTAINER_BD="db_mysql"
+CONTAINER_BD="db_mysql_slave"
 
 # Archivos de salida
 ARCHIVO_SQL="$BACKUP_DB/db_${DB_NAME}_$FECHA.sql.gz"

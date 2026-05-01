@@ -41,7 +41,8 @@ app.add_middleware(
 
 CATEGORIAS_VALIDAS = {
     "Alimentacion", "Bebidas", "Higiene", "Hogar",
-    "Mascotas", "Ropa", "Electronica", "Descuento", "Otros"
+    "Mascotas", "Ropa", "Electronica", "Descuento",
+    "Fruta/Verdura", "Otros"
 }
 
 PROMPT = """
@@ -62,7 +63,7 @@ Return exactly this JSON structure:
             "marca": "Manufacturer or main brand",
             "producto": "Clean, descriptive name in Title Case",
             "precio": 0.00,
-            "categoria": "Alimentacion, Bebidas, Higiene, Hogar, Mascotas, Ropa, Electronica, Descuento, or Otros"
+    "categoria": "Alimentacion, Bebidas, Higiene, Hogar, Mascotas, Ropa, Electronica, Descuento, Fruta/Verdura, or Otros"
         }
     ]
 }
@@ -71,10 +72,15 @@ Return exactly this JSON structure:
 EXTRACTION & CLEANING RULES (STRICT COMPLIANCE REQUIRED)
 ═══════════════════════════════════════════════════════════
 
-1. PAYMENT METHOD & ZERO-VALUE EXCLUSIONS (CRITICAL)
-   - Determine the payment method for "metodo_pago". Map "Metálico", "Efectivo" to "Efectivo". Map "Visa", "Mastercard", "Contactless" to "Tarjeta".
-   - EXCLUDE payment methods, change ("Su cambio"), VAT breakdown, or loyalty points from the products array.
-   - EXCLUDE ANY ITEM OR DISCOUNT WITH A FINAL PRICE OF 0 OR 0.00.
+1. ABSOLUTE EXCLUSIONS (NOTHING FROM THIS LIST MAY APPEAR IN "productos")
+   - Items with a final price of exactly 0.00 (e.g., parking "PARQUING", free bags, loyalty rewards).
+   - Payment method lines: "Tarjeta", "Visa", "Mastercard", "Efectivo", "Metálico", "Contactless", "TARGETA BANCARIA".
+   - Change lines: "Su cambio", "Cambio".
+   - VAT breakdown lines: "IVA", "BASE IMPOSABLE", "QUOTA", tax percentage rows.
+   - Loyalty points or voucher summary lines.
+   - Parking entries of any kind, even if they show a non-zero price.
+   - Total / subtotal summary rows.
+
 
 2. DISCOUNTS & CARREFOUR FIX (CRITICAL ALGORITHM)
    - NEVER use placeholders like "__descuento__". Use a descriptive name (e.g., "Descuento 2da Unidad").
@@ -84,7 +90,7 @@ EXTRACTION & CLEANING RULES (STRICT COMPLIANCE REQUIRED)
    - IF CENTS ARE LOST INLINE: Go to the very bottom of the receipt, look for "VENTAJAS OBTENIDAS" or "DESCUENTOS". If you see "0," and "90" there, combine them and use "-0.90" as the discount price.
 
 3. CATEGORY ("categoria")
-   - Must be strictly one of: "Alimentacion", "Bebidas", "Higiene", "Hogar", "Mascotas", "Ropa", "Electronica", "Descuento", "Otros".
+   - Must be strictly one of: "Alimentacion", "Bebidas", "Higiene", "Hogar", "Mascotas", "Ropa", "Electronica", "Descuento", "Fruta/Verdura", "Otros".
 
 4. SUPERMARKET ("supermercado") & DATE ("fecha_tiquet")
    - Extract clean commercial name (remove S.A., S.L.).
@@ -100,7 +106,11 @@ EXTRACTION & CLEANING RULES (STRICT COMPLIANCE REQUIRED)
 
 7. QUANTITY & PRICE ("cantidad" & "precio") & TOTAL
    - IMPORTANT: Use UNIT values. "precio" is the price of ONE item.
-   - IMPORTANT: Quantities should be integers (1, 2, 3...) unless they clearly refer to weighted items like produce (e.g., 0.750). If OCR reads "2.01", fix it to "2".
+   - For weighted produce (fresh fruit/vegetables), set "categoria" = "Fruta/Verdura".
+     * "cantidad" MUST be the WEIGHT in kilograms (kg), with decimals (e.g., 0.750).
+     * "precio" MUST be the PRICE PER KILOGRAM (€/kg), NOT the line total.
+     * If the receipt shows total + €/kg, derive the weight. If it shows total + weight, derive €/kg.
+   - For non-weighted items, "cantidad" should be an integer (1, 2, 3...). If OCR reads "2.01", fix it to "2".
    - Extract the final receipt sum for the root "total" field.
    - Ensure "precio", "cantidad", and "total" are NUMBERS (float/int), not strings.
 
@@ -141,8 +151,12 @@ def _sanitizar_categoria(cat: str) -> str:
     if not cat: return "Otros"
     s = cat.strip()
     if s in CATEGORIAS_VALIDAS: return s
+    s_lower = s.lower()
+    normalized = re.sub(r'[\s/]+', '', s_lower)
+    if normalized == 'frutaverdura':
+        return "Fruta/Verdura"
     for v in CATEGORIAS_VALIDAS:
-        if v.lower() == s.lower(): return v
+        if v.lower() == s_lower: return v
     return "Otros"
 
 
@@ -153,6 +167,10 @@ def _procesar_y_limpiar_productos(productos: list) -> list:
             p['precio'] = float(str(p.get('precio', 0)).replace(',', '.'))
         except ValueError:
             p['precio'] = 0.0
+        try:
+            p['cantidad'] = float(str(p.get('cantidad', 1)).replace(',', '.'))
+        except ValueError:
+            p['cantidad'] = 1.0
 
         es_desc = (str(p.get('categoria', '')).lower() == 'descuento' or p['precio'] < 0)
         p['es_descuento'] = es_desc
