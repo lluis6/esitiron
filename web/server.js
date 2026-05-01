@@ -335,6 +335,40 @@ const uploadAvatar = multer({
   },
 });
 
+const AVATAR_MAGIC = [
+  {
+    ext: '.jpg',
+    test: (buf) => buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff,
+  },
+  {
+    ext: '.png',
+    test: (buf) => buf.length >= 8
+      && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47
+      && buf[4] === 0x0d && buf[5] === 0x0a && buf[6] === 0x1a && buf[7] === 0x0a,
+  },
+  {
+    ext: '.gif',
+    test: (buf) => buf.length >= 6 && (buf.toString('ascii', 0, 6) === 'GIF87a' || buf.toString('ascii', 0, 6) === 'GIF89a'),
+  },
+  {
+    ext: '.webp',
+    test: (buf) => buf.length >= 12 && buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP',
+  },
+];
+
+async function detectarAvatarPorMagic(filePath) {
+  const fd = await fs.promises.open(filePath, 'r');
+  try {
+    const header = Buffer.alloc(12);
+    const { bytesRead } = await fd.read(header, 0, header.length, 0);
+    const slice = header.slice(0, bytesRead);
+    const match = AVATAR_MAGIC.find((rule) => rule.test(slice));
+    return match ? match.ext : null;
+  } finally {
+    await fd.close();
+  }
+}
+
 const uploadOpf = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 6 * 1024 * 1024 },
@@ -1833,14 +1867,33 @@ app.post('/perfil', auth, async (req,res) => {
 app.post('/perfil/avatar', auth, (req, res) => {
   uploadAvatar.single('avatar')(req, res, async (err) => {
     if (err || !req.file) return res.json({ success: false, error: err?.message || 'Sin archivo' });
+    let finalPath = req.file.path;
     try {
-      const url = `/avatars/${req.file.filename}`;
+      const detectedExt = await detectarAvatarPorMagic(req.file.path);
+      if (!detectedExt) {
+        await fs.promises.unlink(req.file.path).catch(() => {});
+        return res.json({ success: false, error: 'Formato de avatar no permitido' });
+      }
+      let finalFilename = req.file.filename;
+      const currentExt = path.extname(finalFilename).toLowerCase();
+      if (currentExt !== detectedExt) {
+        const base = path.basename(finalFilename, currentExt || undefined);
+        const newFilename = `${base}${detectedExt}`;
+        const newPath = path.join(path.dirname(req.file.path), newFilename);
+        await fs.promises.rename(req.file.path, newPath);
+        finalPath = newPath;
+        finalFilename = newFilename;
+      }
+      const url = `/avatars/${finalFilename}`;
       const [[u]] = await dbPool.execute('SELECT avatar FROM usuarios WHERE id=?',[req.session.usuario.id]);
       if (u?.avatar?.startsWith('/avatars/')) { const old = path.join(__dirname, 'public', u.avatar); if (fs.existsSync(old)) fs.unlink(old, () => {}); }
       await dbPool.execute('UPDATE usuarios SET avatar=? WHERE id=?', [url, req.session.usuario.id]);
       req.session.usuario.avatar = url;
       res.json({ success: true, avatar: url });
-    } catch(e) { res.json({ success: false, error: 'Error guardando avatar' }); }
+    } catch(e) {
+      await fs.promises.unlink(finalPath).catch(() => {});
+      res.json({ success: false, error: 'Error guardando avatar' });
+    }
   });
 });
 
