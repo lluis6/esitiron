@@ -376,20 +376,20 @@ async function guardarPrecio(idx, btnEl) {
     });
     const data = await res.json();
 
-  if (res.ok && data.success) {
-    // Actualizar dato guardado
-    fila.dataset.precioOriginal = nuevoPrecio.toFixed(2);
+    if (res.ok && data.success) {
+      // Actualizar dato guardado
+      fila.dataset.precioOriginal = nuevoPrecio.toFixed(2);
 
-    // Actualizar celda estática
-    const staticSpan = fila.querySelector('.precio-static');
-    const unitSuffix = esFilaPeso(fila) ? ' €/kg' : ' €';
-    staticSpan.textContent = nuevoPrecio.toFixed(2) + unitSuffix;
-    staticSpan.className = 'precio-static' + (nuevoPrecio < 0 ? ' price-red' : '');
+      // Actualizar celda estática
+      const staticSpan = fila.querySelector('.precio-static');
+      const unitSuffix = esFilaPeso(fila) ? ' €/kg' : ' €';
+      staticSpan.textContent = nuevoPrecio.toFixed(2) + unitSuffix;
+      staticSpan.className = 'precio-static' + (nuevoPrecio < 0 ? ' price-red' : '');
 
       // Actualizar subtotal
       const sub = document.getElementById(`sub-${idx}`);
       const subtotal = cantidad * nuevoPrecio;
-    sub.textContent = subtotal.toFixed(2) + ' €';
+      sub.textContent = subtotal.toFixed(2) + ' €';
       sub.className = 'right' + (subtotal < 0 ? ' price-red' : '');
 
       // Actualizar totales

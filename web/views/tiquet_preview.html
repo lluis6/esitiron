@@ -188,8 +188,8 @@ function toggleMenu() { document.getElementById('userDropdown').classList.toggle
 function descartar() { document.getElementById('formDescartar').submit(); }
 
 function esCategoriaPeso(cat) {
-  const normalized = String(cat || '').toLowerCase();
-  return /fruta.*verdura/.test(normalized);
+  const normalized = String(cat || '').toLowerCase().replace(/\s+/g, '').replace(/\//g, '');
+  return normalized === 'frutaverdura';
 }
 
 function obtenerCategoriaFila(fila) {

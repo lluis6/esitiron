@@ -280,8 +280,16 @@ function parsearFechaTicket(fechaStr) {
 function nowMadrid() { return new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Madrid' })); }
 
 function esCategoriaPeso(cat) {
-  const normalized = String(cat || '').toLowerCase();
-  return /fruta.*verdura/.test(normalized);
+  const normalized = String(cat || '').toLowerCase().replace(/\s+/g, '').replace(/\//g, '');
+  return normalized === 'frutaverdura';
+}
+
+function esProductoDescuento(producto) {
+  if (!producto) return false;
+  return producto.es_descuento === true
+    || producto.es_descuento === 1
+    || producto.es_descuento === '1'
+    || String(producto.categoria || '').toLowerCase() === 'descuento';
 }
 
 async function verificarConsenso(conn, idVerificacion) {
@@ -614,7 +622,7 @@ async function guardarTiquet(uid, datos) {
   const super_ = normalizarTienda(datos.supermercado);
   const prods  = datos.productos || [];
   const productosNormalizados = prods.map(p => {
-    const esDescuento = p.es_descuento === true || p.es_descuento === 1 || p.es_descuento === '1' || String(p.categoria || '').toLowerCase() === 'descuento';
+    const esDescuento = esProductoDescuento(p);
     const categoria = esDescuento ? 'Descuento' : (p.categoria || 'Otros');
     const esPeso = !esDescuento && esCategoriaPeso(categoria);
     let cantidad = parseFloat(String(p.cantidad ?? 1).replace(',', '.'));
@@ -634,7 +642,7 @@ async function guardarTiquet(uid, datos) {
       es_peso: esPeso,
     };
   });
-  const total = productosNormalizados.reduce((acc, p) => acc + (p.cantidad * p.precio), 0);
+  const total = productosNormalizados.reduce((acc, p) => acc + Math.round(p.cantidad * p.precio * 100), 0) / 100;
   let fecha = datos.fecha_tiquet ? parsearFechaTicket(datos.fecha_tiquet) : nowMadrid();
   if (!fecha) fecha = nowMadrid();
 

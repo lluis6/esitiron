@@ -147,7 +147,8 @@ def _sanitizar_categoria(cat: str) -> str:
     s = cat.strip()
     if s in CATEGORIAS_VALIDAS: return s
     s_lower = s.lower()
-    if 'fruta' in s_lower and 'verdura' in s_lower:
+    normalized = re.sub(r'[\s/]+', '', s_lower)
+    if normalized == 'frutaverdura':
         return "Fruta/Verdura"
     for v in CATEGORIAS_VALIDAS:
         if v.lower() == s_lower: return v
