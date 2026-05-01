@@ -75,6 +75,7 @@ EXTRACTION & CLEANING RULES (STRICT COMPLIANCE REQUIRED)
 1. PAYMENT METHOD & ZERO-VALUE EXCLUSIONS (CRITICAL)
    - Determine the payment method for "metodo_pago". Map "Metálico", "Efectivo" to "Efectivo". Map "Visa", "Mastercard", "Contactless" to "Tarjeta".
    - EXCLUDE payment methods, change ("Su cambio"), VAT breakdown, or loyalty points from the products array.
+   - EXCLUDE parking/aparcamiento fees (e.g., "Parking", "Parquing", "Aparcamiento").
    - EXCLUDE ANY ITEM OR DISCOUNT WITH A FINAL PRICE OF 0 OR 0.00.
 
 2. DISCOUNTS & CARREFOUR FIX (CRITICAL ALGORITHM)
@@ -154,6 +155,11 @@ def _sanitizar_categoria(cat: str) -> str:
         if v.lower() == s_lower: return v
     return "Otros"
 
+def _es_linea_parking(texto: str) -> bool:
+    if not texto:
+        return False
+    return re.search(r'\b(parking|parquing|aparcamiento)\b', texto, flags=re.IGNORECASE) is not None
+
 
 def _procesar_y_limpiar_productos(productos: list) -> list:
     resultado = []
@@ -174,6 +180,8 @@ def _procesar_y_limpiar_productos(productos: list) -> list:
         p['marca'] = str(p.get('marca', 'Genérico')).strip().title()
 
         nombre_ia = p.get('producto', 'Desconocido')
+        if _es_linea_parking(str(nombre_ia)):
+            continue
 
         # ── CLAVE DEL SISTEMA DE VINCULACIÓN ────────────────────
         p['nombre_ocr'] = nombre_ia.strip().upper() if nombre_ia else 'DESCONOCIDO'
