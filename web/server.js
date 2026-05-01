@@ -279,6 +279,11 @@ function parsearFechaTicket(fechaStr) {
 
 function nowMadrid() { return new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Madrid' })); }
 
+function esCategoriaPeso(cat) {
+  const normalized = String(cat || '').toLowerCase();
+  return /fruta.*verdura/.test(normalized);
+}
+
 async function verificarConsenso(conn, idVerificacion) {
   const [[verif]] = await conn.execute('SELECT * FROM verificaciones_barcode WHERE id = ?',[idVerificacion]);
   if (!verif) return;
@@ -607,8 +612,29 @@ async function getProductosUsuario(uid, pais, supermercado) {
 
 async function guardarTiquet(uid, datos) {
   const super_ = normalizarTienda(datos.supermercado);
-  const total  = parseFloat(datos.total || 0);
-  const prods  = datos.productos ||[];
+  const prods  = datos.productos || [];
+  const productosNormalizados = prods.map(p => {
+    const esDescuento = p.es_descuento === true || p.es_descuento === 1 || p.es_descuento === '1' || String(p.categoria || '').toLowerCase() === 'descuento';
+    const categoria = esDescuento ? 'Descuento' : (p.categoria || 'Otros');
+    const esPeso = !esDescuento && esCategoriaPeso(categoria);
+    let cantidad = parseFloat(String(p.cantidad ?? 1).replace(',', '.'));
+    if (!Number.isFinite(cantidad)) cantidad = 1;
+    cantidad = Math.abs(cantidad);
+    if (!esPeso) cantidad = Math.round(cantidad);
+    if (esDescuento) cantidad = 1;
+    let precio = parseFloat(String(p.precio ?? 0).replace(',', '.'));
+    if (!Number.isFinite(precio)) precio = 0;
+    precio = esDescuento ? -Math.abs(precio) : Math.abs(precio);
+    return {
+      ...p,
+      categoria,
+      es_descuento: esDescuento,
+      cantidad,
+      precio,
+      es_peso: esPeso,
+    };
+  });
+  const total = productosNormalizados.reduce((acc, p) => acc + (p.cantidad * p.precio), 0);
   let fecha = datos.fecha_tiquet ? parsearFechaTicket(datos.fecha_tiquet) : nowMadrid();
   if (!fecha) fecha = nowMadrid();
 
@@ -624,13 +650,13 @@ async function guardarTiquet(uid, datos) {
     );
     const idT = rt.insertId;
 
-    for (const p of prods) {
+    for (const p of productosNormalizados) {
       const esD    = p.es_descuento ? 1 : 0;
       const nom    = (p.producto || 'Desconocido').trim().toUpperCase();
       const nomOcr = (p.nombre_ocr || nom).trim().toUpperCase();
       const cat    = p.categoria || 'Otros';
-      const cant   = parseFloat(p.cantidad || 1);
-      const prec   = parseFloat(p.precio   || 0);
+      const cant   = p.cantidad;
+      const prec   = p.precio;
 
       let idP;
       let yaVinculado = 0;

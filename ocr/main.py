@@ -41,7 +41,8 @@ app.add_middleware(
 
 CATEGORIAS_VALIDAS = {
     "Alimentacion", "Bebidas", "Higiene", "Hogar",
-    "Mascotas", "Ropa", "Electronica", "Descuento", "Otros"
+    "Mascotas", "Ropa", "Electronica", "Descuento",
+    "Fruta/Verdura", "Otros"
 }
 
 PROMPT = """
@@ -62,7 +63,7 @@ Return exactly this JSON structure:
             "marca": "Manufacturer or main brand",
             "producto": "Clean, descriptive name in Title Case",
             "precio": 0.00,
-            "categoria": "Alimentacion, Bebidas, Higiene, Hogar, Mascotas, Ropa, Electronica, Descuento, or Otros"
+    "categoria": "Alimentacion, Bebidas, Higiene, Hogar, Mascotas, Ropa, Electronica, Descuento, Fruta/Verdura, or Otros"
         }
     ]
 }
@@ -84,7 +85,7 @@ EXTRACTION & CLEANING RULES (STRICT COMPLIANCE REQUIRED)
    - IF CENTS ARE LOST INLINE: Go to the very bottom of the receipt, look for "VENTAJAS OBTENIDAS" or "DESCUENTOS". If you see "0," and "90" there, combine them and use "-0.90" as the discount price.
 
 3. CATEGORY ("categoria")
-   - Must be strictly one of: "Alimentacion", "Bebidas", "Higiene", "Hogar", "Mascotas", "Ropa", "Electronica", "Descuento", "Otros".
+   - Must be strictly one of: "Alimentacion", "Bebidas", "Higiene", "Hogar", "Mascotas", "Ropa", "Electronica", "Descuento", "Fruta/Verdura", "Otros".
 
 4. SUPERMARKET ("supermercado") & DATE ("fecha_tiquet")
    - Extract clean commercial name (remove S.A., S.L.).
@@ -100,7 +101,11 @@ EXTRACTION & CLEANING RULES (STRICT COMPLIANCE REQUIRED)
 
 7. QUANTITY & PRICE ("cantidad" & "precio") & TOTAL
    - IMPORTANT: Use UNIT values. "precio" is the price of ONE item.
-   - IMPORTANT: Quantities should be integers (1, 2, 3...) unless they clearly refer to weighted items like produce (e.g., 0.750). If OCR reads "2.01", fix it to "2".
+   - For weighted produce (fresh fruit/vegetables), set "categoria" = "Fruta/Verdura".
+     * "cantidad" MUST be the WEIGHT in kilograms (kg), with decimals (e.g., 0.750).
+     * "precio" MUST be the PRICE PER KILOGRAM (€/kg), NOT the line total.
+     * If the receipt shows total + €/kg, derive the weight. If it shows total + weight, derive €/kg.
+   - For non-weighted items, "cantidad" should be an integer (1, 2, 3...). If OCR reads "2.01", fix it to "2".
    - Extract the final receipt sum for the root "total" field.
    - Ensure "precio", "cantidad", and "total" are NUMBERS (float/int), not strings.
 
@@ -141,8 +146,11 @@ def _sanitizar_categoria(cat: str) -> str:
     if not cat: return "Otros"
     s = cat.strip()
     if s in CATEGORIAS_VALIDAS: return s
+    s_lower = s.lower()
+    if 'fruta' in s_lower and 'verdura' in s_lower:
+        return "Fruta/Verdura"
     for v in CATEGORIAS_VALIDAS:
-        if v.lower() == s.lower(): return v
+        if v.lower() == s_lower: return v
     return "Otros"
 
 
@@ -153,6 +161,10 @@ def _procesar_y_limpiar_productos(productos: list) -> list:
             p['precio'] = float(str(p.get('precio', 0)).replace(',', '.'))
         except ValueError:
             p['precio'] = 0.0
+        try:
+            p['cantidad'] = float(str(p.get('cantidad', 1)).replace(',', '.'))
+        except ValueError:
+            p['cantidad'] = 1.0
 
         es_desc = (str(p.get('categoria', '')).lower() == 'descuento' or p['precio'] < 0)
         p['es_descuento'] = es_desc

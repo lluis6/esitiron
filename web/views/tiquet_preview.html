@@ -113,15 +113,19 @@
           </thead>
           <tbody id="tbodyProductos">
             {% for p in productos %}
-            <tr class="{{ 'fila-descuento' if p.es_descuento else '' }}">
+            <tr class="{{ 'fila-descuento' if p.es_descuento else '' }}" data-categoria="{{ p.categoria }}">
               <input type="hidden" name="productos[{{ loop.index0 }}][es_descuento]" value="{{ '1' if p.es_descuento else '0' }}">
               <input type="hidden" name="productos[{{ loop.index0 }}][nombre_ocr]" value="{{ p.nombre_ocr | default(p.producto) }}">
               
-              <td class="cell-static"><span class="qty-pill">{{ p.cantidad }}</span></td>
+              <td class="cell-static">
+                <span class="qty-pill">
+                  {{ p.cantidad | smartCant }}{% if p.categoria == 'Fruta/Verdura' %} kg{% endif %}
+                </span>
+              </td>
               <td class="cell-editable" style="display:none;">
                 <input type="number" name="productos[{{ loop.index0 }}][cantidad]" 
                        class="edit-input input-cant {{ 'input-blocked' if p.es_descuento else '' }}" 
-                       value="{{ p.cantidad }}" step="1" oninput="recalcular()"
+                       value="{{ p.cantidad }}" step="{{ '0.001' if p.categoria == 'Fruta/Verdura' else '1' }}" oninput="recalcular()"
                        {% if p.es_descuento %} readonly tabindex="-1" {% endif %}>
               </td>
               
@@ -140,13 +144,15 @@
               <td class="cell-static"><span class="{{ 'cat-pill-red' if p.es_descuento else 'cat-pill' }}">{{ p.categoria }}</span></td>
               <td class="cell-editable" style="display:none;">
                 <select name="productos[{{ loop.index0 }}][categoria]" class="edit-input" onchange="onCategoriaChange(this)">
-                  {% for cat in ["Alimentacion", "Bebidas", "Higiene", "Hogar", "Mascotas", "Ropa", "Electronica", "Descuento", "Otros"] %}
+                  {% for cat in ["Alimentacion", "Bebidas", "Higiene", "Hogar", "Mascotas", "Ropa", "Electronica", "Fruta/Verdura", "Descuento", "Otros"] %}
                     <option value="{{ cat }}" {% if p.categoria == cat %}selected{% endif %}>{{ cat }}</option>
                   {% endfor %}
                 </select>
               </td>
               
-              <td class="cell-static right">{{ p.precio | format }} €</td>
+              <td class="cell-static right">
+                {{ p.precio | format }} {% if p.categoria == 'Fruta/Verdura' %}€/kg{% else %}€{% endif %}
+              </td>
               <td class="cell-editable" style="display:none;">
                 <input type="number" name="productos[{{ loop.index0 }}][precio]" class="edit-input input-num" value="{{ p.precio | format }}" step="0.01" oninput="recalcular()">
               </td>
@@ -181,12 +187,31 @@ let modoEdicion = false;
 function toggleMenu() { document.getElementById('userDropdown').classList.toggle('open'); }
 function descartar() { document.getElementById('formDescartar').submit(); }
 
+function esCategoriaPeso(cat) {
+  const normalized = String(cat || '').toLowerCase();
+  return /fruta.*verdura/.test(normalized);
+}
+
+function obtenerCategoriaFila(fila) {
+  const select = fila.querySelector('select[name$="[categoria]"]');
+  return select ? select.value : (fila.dataset.categoria || '');
+}
+
+function formatCantidad(n) {
+  if (!Number.isFinite(n)) return '0';
+  if (Number.isInteger(n)) return String(n);
+  return n.toFixed(3).replace(/\.?0+$/, '');
+}
+
 function onCategoriaChange(select) {
   const fila = select.closest('tr');
   const esDesc = select.value === 'Descuento';
+  const esPeso = esCategoriaPeso(select.value);
   const inputCant = fila.querySelector('.input-cant');
   const inputEsD = fila.querySelector('input[name$="[es_descuento]"]');
   const inputPrec = fila.querySelector('.input-num');
+
+  fila.dataset.categoria = select.value;
 
   if (esDesc) {
     fila.classList.add('fila-descuento');
@@ -208,6 +233,9 @@ function onCategoriaChange(select) {
     }
     if(inputPrec) inputPrec.value = Math.abs(parseFloat(inputPrec.value.replace(',', '.')) || 0).toFixed(2);
   }
+  if (inputCant && !esDesc) {
+    inputCant.step = esPeso ? '0.001' : '1';
+  }
   recalcular();
 }
 
@@ -221,23 +249,20 @@ function recalcular() {
     const iEsD  = fila.querySelector('input[name$="[es_descuento]"]');
     if (!iCant || !iPrec) return;
 
-    // --- OPCIÓN NUCLEAR DE REDONDEO ---
+    const esPeso = esCategoriaPeso(obtenerCategoriaFila(fila));
     let cantRaw = parseFloat(iCant.value.replace(',', '.')) || 0;
-    let cantEntero = Math.round(cantRaw); // Fuerza sí o sí a número entero sin decimales
-    
-    // Sobrescribe el valor en el input y en la etiqueta visual
-    if (iCant.value !== cantEntero.toString()) {
-        iCant.value = cantEntero; 
+    let cantFinal = esPeso ? cantRaw : Math.round(cantRaw);
+    if (!esPeso && iCant.value !== cantFinal.toString()) {
+      iCant.value = cantFinal;
     }
     const labelCant = fila.querySelector('.qty-pill');
-    if (labelCant) labelCant.textContent = cantEntero;
-    // ----------------------------------
+    if (labelCant) labelCant.textContent = formatCantidad(cantFinal) + (esPeso ? ' kg' : '');
 
     let prec = parseFloat(iPrec.value.replace(',', '.')) || 0;
     const esDesc = iEsD && iEsD.value === '1';
     prec = esDesc ? -Math.abs(prec) : Math.abs(prec);
 
-    const sub = cantEntero * prec;
+    const sub = cantFinal * prec;
     
     // Actualizar subtotales
     fila.querySelector('.subtotal-input').value = sub.toFixed(2);
@@ -297,6 +322,7 @@ function anyadirFila() {
   const tbody = document.getElementById('tbodyProductos');
   const idx = tbody.children.length;
   const tr = document.createElement('tr');
+  tr.dataset.categoria = 'Otros';
   tr.innerHTML = `
     <input type="hidden" name="productos[${idx}][es_descuento]" value="0">
     <input type="hidden" name="productos[${idx}][nombre_ocr]" value="">
@@ -309,7 +335,16 @@ function anyadirFila() {
     <td class="cell-static" style="display:none;"><span class="cat-pill">Otros</span></td>
     <td class="cell-editable">
       <select name="productos[${idx}][categoria]" class="edit-input" onchange="onCategoriaChange(this)">
-        <option value="Alimentacion">Alimentacion</option><option value="Otros" selected>Otros</option>
+        <option value="Alimentacion">Alimentacion</option>
+        <option value="Bebidas">Bebidas</option>
+        <option value="Higiene">Higiene</option>
+        <option value="Hogar">Hogar</option>
+        <option value="Mascotas">Mascotas</option>
+        <option value="Ropa">Ropa</option>
+        <option value="Electronica">Electronica</option>
+        <option value="Fruta/Verdura">Fruta/Verdura</option>
+        <option value="Descuento">Descuento</option>
+        <option value="Otros" selected>Otros</option>
       </select>
     </td>
     <td class="cell-static right" style="display:none;">0.00 €</td>
