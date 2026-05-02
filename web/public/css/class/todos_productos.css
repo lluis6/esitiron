@@ -471,3 +471,18 @@ html.dark .asignar-ean-input {
 .file-upload-text { color: var(--text3); font-size: 0.9rem; }
 .img-preview { max-width: 100%; max-height: 200px; border-radius: var(--radius-sm); margin-top: 0.5rem; }
 .w-full { width: 100%; }
+
+.estado-pill { 
+  font-size: 0.75rem; 
+  padding: 4px 8px; 
+  border-radius: 20px; 
+  font-weight: 700; 
+}
+.estado-pill.ok { 
+  background: rgba(16,185,129,.15); 
+  color: #059669; 
+}
+.estado-pill.pendiente { 
+  background: rgba(245,158,11,.15); 
+  color: #d97706; 
+}

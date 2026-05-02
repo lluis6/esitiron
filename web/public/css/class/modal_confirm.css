@@ -1,0 +1,56 @@
+/* ==========================================================================
+   ESÍTIRON — modal_confirm.css
+   Estilos para el modal personalizado de confirmación (Promise-based)
+   ========================================================================== */
+
+.modal-overlay {
+  position: fixed; 
+  inset: 0;
+  background: rgba(0,0,0,0.4);
+  backdrop-filter: blur(4px); 
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 500;
+  display: flex; 
+  align-items: center; 
+  justify-content: center;
+  opacity: 0; 
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.modal-overlay.open { 
+  opacity: 1; 
+  pointer-events: all; 
+}
+
+.modal-card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.75rem;
+  width: 100%; 
+  max-width: 420px;
+  box-shadow: var(--shadow-lg);
+  transform: translateY(20px) scale(0.97);
+  transition: transform 0.25s ease;
+}
+
+.modal-overlay.open .modal-card { 
+  transform: translateY(0) scale(1); 
+}
+
+.modal-title {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-weight: 700; 
+  font-size: 1.1rem; 
+  color: var(--text);
+  margin-bottom: 0.5rem; 
+  text-align: left;
+}
+
+.modal-btns { 
+  display: flex; 
+  gap: 0.75rem; 
+  margin-top: 1.25rem; 
+  justify-content: flex-end; 
+}

@@ -7,14 +7,34 @@
   <script src="/js/theme.js"></script>
   <link rel="stylesheet" href="/css/main.css">
   <link rel="stylesheet" href="/css/class/todos_productos.css?v=20260428-2">
+  <link rel="stylesheet" href="/css/class/modal_confirm.css">
   <link rel="icon" type="image/png" href="/img/logo.jpg">
-  <style>
-    .estado-pill { font-size:.75rem; padding:4px 8px; border-radius:20px; font-weight:700; }
-    .estado-pill.ok { background:rgba(16,185,129,.15); color:#059669; }
-    .estado-pill.pendiente { background:rgba(245,158,11,.15); color:#d97706; }
-  </style>
 </head>
 <body>
+
+<!-- Modal Confirmación EAN -->
+<div class="modal-overlay" id="modalConfirmEan" onclick="cerrarModalConfirmEan(event)">
+  <div class="modal-card" onclick="event.stopPropagation()">
+    <div class="modal-title">¿Asociar este código?</div>
+    <p style="color:var(--text2); font-size:0.9rem; margin-bottom:1rem; text-align: left;">
+      ¿Confirmas asociar el código <strong id="modalEanVal"></strong> a este producto?
+      <br><br>Quedará pendiente de verificación por un administrador.
+    </p>
+    
+    <div style="display:flex; align-items:center; gap:1rem; padding:0.75rem; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--surface2); text-align:left; margin-bottom:1.5rem;">
+      <img id="modalEanImg" src="" style="width:48px; height:48px; object-fit:contain; border-radius:6px; background:white; border:1px solid var(--border); flex-shrink:0;" alt="">
+      <div style="flex:1; min-width:0;">
+        <div style="font-weight:600; font-size:0.9rem; color:var(--text); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;" id="modalEanNombre"></div>
+        <div style="font-size:0.75rem; color:var(--text3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" id="modalEanMarca"></div>
+      </div>
+    </div>
+
+    <div class="modal-btns">
+      <button class="btn btn-ghost" type="button" onclick="cerrarModalConfirmEan(event)">Cancelar</button>
+      <button class="btn btn-primary" type="button" id="btnConfirmarEanAction">Sí, asociar</button>
+    </div>
+  </div>
+</div>
 
 <!-- Panel overlay compartido -->
 <div class="panel-overlay" id="panelOverlay" onclick="cerrarPanel()"></div>
@@ -396,9 +416,36 @@ let currentIdCompra = null;
 let buscarTimer = null;
 let eanLookupProduct = null;
 
-function confirmarReferenciaBarcode(ean, nombre) {
-  const etiqueta = nombre ? `\nProducto: ${nombre}` : '';
-  return confirm(`¿Confirmas asociar el codigo ${ean} a este producto?${etiqueta}\nQuedara pendiente de verificacion admin.`);
+const PLACEHOLDER_IMG = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 48 48'%3E%3Crect width='48' height='48' rx='8' fill='%23f3f4f6'/%3E%3Ctext x='50%25' y='54%25' dominant-baseline='middle' text-anchor='middle' font-size='22' font-family='sans-serif'%3E🛒%3C/text%3E%3C/svg%3E`;
+
+// MODAL CONFIRMACIÓN EAN (Promise-based)
+function confirmarReferenciaBarcodeAsync(ean, nombre, marca, fotoUrl) {
+  return new Promise((resolve) => {
+    const modal = document.getElementById('modalConfirmEan');
+    document.getElementById('modalEanVal').textContent = ean || 'N/A';
+    document.getElementById('modalEanNombre').textContent = nombre || 'Desconocido';
+    document.getElementById('modalEanMarca').textContent = marca || '';
+    
+    const imgEl = document.getElementById('modalEanImg');
+    imgEl.src = fotoUrl || PLACEHOLDER_IMG;
+    
+    modal.classList.add('open');
+
+    const btnConfirm = document.getElementById('btnConfirmarEanAction');
+    const newConfirm = btnConfirm.cloneNode(true);
+    btnConfirm.parentNode.replaceChild(newConfirm, btnConfirm);
+    
+    newConfirm.addEventListener('click', () => {
+      modal.classList.remove('open');
+      resolve(true);
+    });
+
+    window.cerrarModalConfirmEan = function(e) {
+      if (e && e.target !== e.currentTarget && !e.target.classList.contains('btn-ghost')) return;
+      modal.classList.remove('open');
+      resolve(false);
+    };
+  });
 }
 
 function abrirVincular(id, original) {
@@ -493,7 +540,9 @@ async function buscarEAN() {
       };
 
       renderEanFound(eanLookupProduct);
-      if (!confirmarReferenciaBarcode(eanLookupProduct.ean, eanLookupProduct.nombre)) {
+      
+      const confirmado = await confirmarReferenciaBarcodeAsync(eanLookupProduct.ean, eanLookupProduct.nombre, eanLookupProduct.marca, eanLookupProduct.image_url);
+      if (!confirmado) {
         setEanStatus('Operacion cancelada.', 'info');
         return;
       }
@@ -582,7 +631,9 @@ async function crearYVincularEAN(e) {
     return;
   }
 
-  if (!confirmarReferenciaBarcode(ean, nombre)) {
+  const fotoUrl = URL.createObjectURL(foto);
+  const confirmado = await confirmarReferenciaBarcodeAsync(ean, nombre, marca, fotoUrl);
+  if (!confirmado) {
     setEanStatus('Operacion cancelada.', 'info');
     return;
   }
@@ -630,7 +681,7 @@ async function fetchJsonArray(url) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json();
-  return Array.isArray(data) ? data : [];
+  return Array.isArray(data) ? data :[];
 }
 
 async function _doSearch(q) {
@@ -643,8 +694,8 @@ async function _doSearch(q) {
       fetchJsonArray(`/api/maestros/buscar?q=${encodeURIComponent(q)}`),
       fetchJsonArray(`/api/proxy/off?q=${encodeURIComponent(q)}`),
     ]);
-    const localRes = localResult.status === 'fulfilled' ? localResult.value : [];
-    const offRes = offResult.status === 'fulfilled' ? offResult.value : [];
+    const localRes = localResult.status === 'fulfilled' ? localResult.value :[];
+    const offRes = offResult.status === 'fulfilled' ? offResult.value :[];
     const offFailed = offResult.status === 'rejected';
     resultsDiv.innerHTML = '';
 
@@ -686,14 +737,12 @@ async function _doSearch(q) {
   }
 }
 
-const PLACEHOLDER = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 48 48'%3E%3Crect width='48' height='48' rx='8' fill='%23f3f4f6'/%3E%3Ctext x='50%25' y='54%25' dominant-baseline='middle' text-anchor='middle' font-size='22' font-family='sans-serif'%3E🛒%3C/text%3E%3C/svg%3E`;
-
 function createItem(p, isExternal) {
   const div = document.createElement('div');
   div.className = 'vp-item';
   const nombre = (p.nombre || 'Sin nombre').substring(0, 55);
   div.innerHTML = `
-    <img src="${PLACEHOLDER}" class="vp-img" alt="">
+    <img src="${PLACEHOLDER_IMG}" class="vp-img" alt="">
     <div style="flex:1;min-width:0;">
       <span class="vp-name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;">
         ${nombre} ${isExternal ? '<span class="off-badge">OFF</span>' : '<span style="color:var(--accent)">✅</span>'}
@@ -719,7 +768,8 @@ async function vincular(p, isExternal) {
 
   if (isExternal && p.codigo_barras) {
     const nombre = p.nombre || p.product_name || '';
-    if (!confirmarReferenciaBarcode(p.codigo_barras, nombre)) return;
+    const confirmado = await confirmarReferenciaBarcodeAsync(p.codigo_barras, nombre, p.marca, p.foto_url);
+    if (!confirmado) return;
   }
 
   const res = await fetch('/api/compras/vincular', {
