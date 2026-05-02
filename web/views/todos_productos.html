@@ -816,7 +816,7 @@ async function votar(idVerif, voto, btnEl) {
       botones.forEach(b => b.style.display = 'none');
       const pregunta = fila.querySelector('span[style*="¿Es correcto"]');
       if (pregunta) pregunta.remove();
-      fila.insertAdjacentHTML('beforeend', `<span class="voto-ya">Tu voto: ${voto === 'si' ? '✓ Sí' : '✗ No'}</span>`);
+	fila.insertAdjacentHTML('beforeend', `<span class="voto-ya ${voto === 'no' ? 'no' : ''}">Tu voto: ${voto === 'si' ? '✓ Sí' : '✗ No'}</span>`);
       if (data.estado === 'verificado') setTimeout(() => location.reload(), 1000);
     } else {
       botones.forEach(b => b.disabled = false);
