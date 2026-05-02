@@ -1,9 +1,5 @@
 services:
 
-  # ══════════════════════════════════════════════════════════════
-  #  RED PÚBLICA — Tailscale + Cloudflare + Nginx
-  # ══════════════════════════════════════════════════════════════
-
   tailscale:
     image: tailscale/tailscale:latest
     container_name: tailscale
@@ -18,12 +14,12 @@ services:
     cap_add:
       - NET_ADMIN
       - SYS_MODULE
-    entrypoint:  ["/bin/sh", "/entrypoint-funnel.sh"]
+    entrypoint: ["/bin/sh", "/entrypoint-funnel.sh"]
     network_mode: "service:proxy"
     depends_on:
-        proxy:
-          condition: service_started
-          restart: true
+      proxy:
+        condition: service_started
+        restart: true
     restart: unless-stopped
 
   cloudflared:
@@ -53,9 +49,6 @@ services:
       - web
     restart: always
 
-  # ══════════════════════════════════════════════════════════════
-  #  NGINX EXPORTER — métricas stub_status de Nginx
-  # ══════════════════════════════════════════════════════════════
   nginx-exporter:
     image: nginx/nginx-prometheus-exporter:latest
     container_name: nginx-exporter
@@ -71,24 +64,24 @@ services:
   # ══════════════════════════════════════════════════════════════
   #  APLICACIÓN
   # ══════════════════════════════════════════════════════════════
-
   web:
     build: ./web
     container_name: app_servidor
     volumes:
       - ./web:/app
       - /app/node_modules
+    # ✅ env_file carga todo el .env automáticamente.
+    # Las variables críticas (SESSION_SECRET, AES_SALT) vienen
+    # solo de aquí — sin fallback en el bloque environment.
     env_file:
       - ./.env
     environment:
       - DB_HOST=db
-      - DB_USER=${DB_USER:-user_seguro}
-      - DB_PASSWORD=${DB_PASSWORD}
-      - DB_NAME=${DB_NAME:-tiquets_db}
       - OCR_HOST=ocr
       - NODE_ENV=${NODE_ENV:-production}
-      - SESSION_SECRET=${SESSION_SECRET:-SecretoFijoParaCifrado2FA_123}
-      - METRICS_PORT=9090
+      # ✅ ELIMINADO: SESSION_SECRET=${SESSION_SECRET:-SecretoFijoParaCifrado2FA_123}
+      # Ese fallback hardcodeado era la vulnerabilidad principal.
+      # Ahora SESSION_SECRET debe estar en .env o la app no arranca.
     networks:
       - red_publica
       - red_interna
@@ -99,7 +92,7 @@ services:
         condition: service_healthy
     restart: on-failure
     healthcheck:
-      test:  ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health', r => process.exit(r.statusCode === 200 ? 0 : 1))"]
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health', r => process.exit(r.statusCode === 200 ? 0 : 1))"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -124,6 +117,8 @@ services:
     image: mysql:8.0
     container_name: db_mysql
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --skip-character-set-client-handshake
+    env_file:
+      - ./.env
     environment:
       - MYSQL_ROOT_PASSWORD=${DB_ROOT_PASSWORD}
       - MYSQL_DATABASE=${DB_NAME:-tiquets_db}
@@ -135,23 +130,24 @@ services:
       - mysql_data:/var/lib/mysql
       - ./db_base:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test:  ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_ROOT_PASSWORD}"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_ROOT_PASSWORD}"]
       interval: 10s
       timeout: 5s
       retries: 10
       start_period: 30s
     restart: unless-stopped
 
-
   db_replica:
     image: mysql:8.0
     container_name: db_mysql_slave
     command: >
-      --character-set-server=utf8mb4 
-      --collation-server=utf8mb4_unicode_ci 
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
       --skip-character-set-client-handshake
       --server-id=2
       --read-only=1
+    env_file:
+      - ./.env
     environment:
       - MYSQL_ROOT_PASSWORD=${DB_ROOT_PASSWORD}
     networks:
@@ -163,75 +159,59 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  # ══════════════════════════════════════════════════════════════
-  #  EXPORTERS
-  # ══════════════════════════════════════════════════════════════
-
   node-exporter:
-      image: prom/node-exporter:latest
-      container_name: node-exporter
-      pid: host 
-      volumes:
-        - /proc:/host/proc:ro
-        - /sys:/host/sys:ro
-        - /:/rootfs:ro
-      command:
-        - '--path.procfs=/host/proc'
-        - '--path.sysfs=/host/sys'
-        - '--path.rootfs=/rootfs'
-        - '--no-collector.systemd'
-        - '--no-collector.nfs'
-        - '--no-collector.nfsd'
-        - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
-      networks:
-        - red_monitoring
-      restart: unless-stopped
+    image: prom/node-exporter:latest
+    container_name: node-exporter
+    pid: host
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/rootfs'
+      - '--no-collector.systemd'
+      - '--no-collector.nfs'
+      - '--no-collector.nfsd'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    networks:
+      - red_monitoring
+    restart: unless-stopped
 
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:latest
     container_name: cadvisor
     privileged: true
-    #comentar bloque command si se va a usar docker a nivel de sistema
     command:
-     # - '--docker_only=true'
       - '--docker=unix:///var/run/docker.sock'
     volumes:
       - /:/rootfs:ro
-      #- /var/run:/var/run:ro
       - /dev/disk/:/dev/disk:ro
       - /sys/fs/cgroup:/sys/fs/cgroup:ro
-      #- /sys:/sys:ro
-      #rutas para docker a nivel de usuario
       - ${HOME}/.local/share/docker:/var/lib/docker:ro
       - ${XDG_RUNTIME_DIR}/docker.sock:/var/run/docker.sock:ro
       - ${XDG_RUNTIME_DIR}/docker/containerd/containerd.sock:/run/containerd/containerd.sock:ro
-      #rutas para docker a nivel de sistema
-      #- /var/lib/docker/:/var/lib/docker:ro
-      #- /dev/disk/:/dev/disk:ro
     networks:
       - red_monitoring
     restart: unless-stopped
 
   mysql-exporter:
-      image: prom/mysqld-exporter:v0.14.0
-      container_name: mysql-exporter
-      environment:
-        - DATA_SOURCE_NAME=${DB_USER}:${DB_PASSWORD}@(db:3306)/
-      command:
-        - "--no-collect.slave_status"
-        - "--collect.info_schema.innodb_metrics"
-        - "--collect.info_schema.processlist"
-      networks:
-        - red_interna
-        - red_monitoring
-      depends_on:
-        db:
-          condition: service_healthy
-      restart: unless-stopped
-
-  # ══════════════════════════════════════════════════════════════
-  #  MONITOREO — Prometheus + Grafana (SOLO RED INTERNA)
-  # ══════════════════════════════════════════════════════════════
+    image: prom/mysqld-exporter:v0.14.0
+    container_name: mysql-exporter
+    environment:
+      - DATA_SOURCE_NAME=${DB_USER}:${DB_PASSWORD}@(db:3306)/
+    command:
+      - "--no-collect.slave_status"
+      - "--collect.info_schema.innodb_metrics"
+      - "--collect.info_schema.processlist"
+    networks:
+      - red_interna
+      - red_monitoring
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
 
   prometheus:
     image: prom/prometheus:latest
@@ -258,11 +238,12 @@ services:
     container_name: grafana
     ports:
       - "3001:3000"
+    env_file:
+      - ./.env
     environment:
       - GF_SECURITY_ADMIN_USER=${GF_ADMIN_USER}
       - GF_SECURITY_ADMIN_PASSWORD=${GF_ADMIN_PASSWORD}
       - GF_USERS_ALLOW_SIGN_UP=false
-      # ⚠️ IMPORTANTE: Sin acceso desde fuera - URL interna
       - GF_SERVER_ROOT_URL=http://grafana:3000/
       - GF_SERVER_SERVE_FROM_SUB_PATH=false
     volumes:
@@ -274,10 +255,6 @@ services:
       - prometheus
       - loki
     restart: unless-stopped
-
-  # ══════════════════════════════════════════════════════════════
-  #  LOGS — Loki + Promtail (logs Docker)
-  # ══════════════════════════════════════════════════════════════
 
   loki:
     image: grafana/loki:3.1.1
@@ -297,12 +274,6 @@ services:
     volumes:
       - ./monitoring/promtail/config.yml:/etc/promtail/config.yml:ro
       - promtail_data:/tmp
-
-      #comandos a nivel docker sistema      
-      #- /var/lib/docker/containers:/var/lib/docker/containers:ro
-      # /var/run/docker-sock:/var/run/docker.sock:ro
-
-      #docker a nivel usuario
       - ${HOME}/.local/share/docker/containers:/var/lib/docker/containers:ro
       - ${XDG_RUNTIME_DIR}/docker.sock:/var/run/docker.sock:ro
       - ${XDG_RUNTIME_DIR}/docker/containerd/containerd.sock:/run/containerd/containerd.sock:ro
@@ -312,9 +283,6 @@ services:
       - loki
     restart: unless-stopped
 
-# ══════════════════════════════════════════════════════════════
-#  REDES Y VOLÚMENES
-# ══════════════════════════════════════════════════════════════
 networks:
   red_publica:
   red_interna:
