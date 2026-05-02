@@ -48,22 +48,22 @@ CATEGORIAS_VALIDAS = {
 PROMPT = """
 You are an expert Retail Data Analyst and Bookkeeper. Your objective is to extract information from a receipt (ticket) image and standardize it into a highly professional catalog format.
 
-CRITICAL INSTRUCTION: You must return ONLY a raw, valid JSON object. Do NOT include markdown formatting (like ```json), do NOT include explanations, and do NOT add any conversational text.
+CRITICAL INSTRUCTION: You must return ONLY a raw, valid JSON object. Do NOT include markdown formatting (like ```json), do NOT include explanations, and do NOT add any conversational text. The response must start strictly with { and end with }.
 
 Return exactly this JSON structure:
 {
     "supermercado": "Clean commercial name of the store",
     "tipo_comercio": "Supermercado, Restaurante, Farmacia, Moda, Electronica, or Otros",
-    "fecha_tiquet": "YYYY-MM-DD HH:MM (or YYYY-MM-DD if no time is visible, or null if missing)",
+    "fecha_tiquet": "YYYY-MM-DD HH:MM",
     "total": 0.00,
     "metodo_pago": "Efectivo, Tarjeta, or Otros",
     "productos": [
         {
             "cantidad": 1,
             "marca": "Manufacturer or main brand",
-            "producto": "Clean, descriptive name in Title Case",
+            "producto": "Clean, fully expanded descriptive name in Title Case",
             "precio": 0.00,
-    "categoria": "Alimentacion, Bebidas, Higiene, Hogar, Mascotas, Ropa, Electronica, Descuento, Fruta/Verdura, or Otros"
+            "categoria": "Alimentacion, Bebidas, Higiene, Hogar, Mascotas, Ropa, Electronica, Descuento, Fruta/Verdura, Bolsas/Envases, or Otros"
         }
     ]
 }
@@ -72,55 +72,58 @@ Return exactly this JSON structure:
 EXTRACTION & CLEANING RULES (STRICT COMPLIANCE REQUIRED)
 ═══════════════════════════════════════════════════════════
 
-1. ABSOLUTE EXCLUSIONS (NOTHING FROM THIS LIST MAY APPEAR IN "productos")
-   - Items with a final price of exactly 0.00 (e.g., parking "PARQUING", free bags, loyalty rewards).
-   - Payment method lines: "Tarjeta", "Visa", "Mastercard", "Efectivo", "Metálico", "Contactless", "TARGETA BANCARIA".
-   - Change lines: "Su cambio", "Cambio".
-   - VAT breakdown lines: "IVA", "BASE IMPOSABLE", "QUOTA", tax percentage rows.
-   - Loyalty points or voucher summary lines.
-   - Parking entries of any kind, even if they show a non-zero price.
+1. ABSOLUTE EXCLUSIONS (DO NOT INCLUDE IN "productos")
+   - Parking entries, validations, or tickets of ANY kind (e.g., "PARQUING", "TICKET PARKING", "DTO. PARKING"), regardless of whether their price is 0.00 or a non-zero value.
+   - Items with a final price of exactly 0.00.
+   - Payment method lines: "Tarjeta", "Visa", "Mastercard", "Efectivo", "Metálico", "Contactless".
+   - Change lines: "Su cambio", "Cambio", "Entregado".
+   - VAT/Tax breakdown lines: "IVA", "BASE IMPOSABLE", "QUOTA", tax percentages.
+   - Loyalty points, "CLUB CARREFOUR", or "VENTAJAS OBTENIDAS" summary lines.
    - Total / subtotal summary rows.
 
-
-2. DISCOUNTS & CARREFOUR FIX (CRITICAL ALGORITHM)
-   - NEVER use placeholders like "__descuento__". Use a descriptive name (e.g., "Descuento 2da Unidad").
+2. DISCOUNTS & SPLIT PRICES (CRITICAL CARREFOUR FIX)
    - "categoria" MUST be "Descuento".
-   - "precio" MUST be a STRICTLY NEGATIVE float (e.g., -0.90).
-   - IF THE PRICE LOOKS LIKE "-0," OR "-0": This is an incomplete OCR read. DO NOT output -0.00. You MUST search the text below it for the missing cents (like "90"). 
-   - IF CENTS ARE LOST INLINE: Go to the very bottom of the receipt, look for "VENTAJAS OBTENIDAS" or "DESCUENTOS". If you see "0," and "90" there, combine them and use "-0.90" as the discount price.
+   - "precio" MUST be a STRICTLY NEGATIVE float (e.g., -0.73).
+   - OCR SPLIT DECIMAL FIX: If you encounter a price that ends with a comma (e.g., "-0," or "1,"), the OCR has split the number. You MUST scan the immediate next available numbers in the OCR text to find the 1 or 2-digit decimals (e.g., "73" or "90"). Combine them mathematically: "-0," and "73" = -0.73. NEVER output a number ending in a comma or a string.
 
-3. CATEGORY ("categoria")
-   - Must be strictly one of: "Alimentacion", "Bebidas", "Higiene", "Hogar", "Mascotas", "Ropa", "Electronica", "Descuento", "Fruta/Verdura", "Otros".
+3. PRODUCT NAME ("producto") — CLEAN & EXPAND
+   - EXPAND ABBREVIATIONS: Use your knowledge to expand supermarket abbreviations logically. 
+     * Example: "T.VERD MARACUYA" -> "Te Verde Maracuya"
+     * Example: "B.ENER.CACA.CA" -> "Barrita Energetica Cacao"
+   - Be aggressive expanding abbreviations for cosmetics and cleaning supplies (e.g., "GEL DUCHA V." -> "Gel Ducha", "DES. ALOE R." -> "Desodorante Aloe Roll-on", "DETERG. LIQ" -> "Detergente Liquido").
+   - REMOVE TRAILING TAX INDICATORS: Spanish receipts end product lines with isolated characters ("O", "0", "A", "B", "C"). You MUST remove them. "T.VERD MARACUYA O" -> "Te Verde Maracuya".
+   - Remove noise: Store IDs, asterisks, arrows (↓), "REF.".
 
-4. SUPERMARKET ("supermercado") & DATE ("fecha_tiquet")
-   - Extract clean commercial name (remove S.A., S.L.).
+4. BRAND ("marca")
+   - Extract the manufacturer. If the item implies a store brand (e.g., "ARANDANO CARRE"), use the store name (e.g., "Carrefour"). If unknown, use "Generica".
+
+5. QUANTITY & UNIT PRICE ENFORCEMENT (CRITICAL)
+   - "precio" MUST be the price of exactly ONE unit. Ensure it is a FLOAT.
+   - When "cantidad" > 1, receipts usually print: [QTY] [NAME] [UNIT PRICE] [LINE TOTAL] (e.g., "2 BARRITA CACAO 1,65 3,30").
+   - You MUST extract the UNIT PRICE (1.65) for the "precio" field. NEVER extract the line total (3.30).
+   - FALLBACK MATH: If the OCR only captured the line total and the unit price is missing from the text, you MUST mathematically divide the line total by "cantidad" to determine the true "precio" (e.g., 3.30 / 2 = 1.65).
+   - Weighted produce (fresh fruit/vegetables): Category is "Fruta/Verdura". "cantidad" MUST be the WEIGHT in kilograms (kg) as a float (e.g., 0.750). "precio" MUST be the PRICE PER KILOGRAM (€/kg).
+
+6. SUPERMARKET ("supermercado") & DATE ("fecha_tiquet")
+   - Extract clean commercial name (remove S.A., S.L., Centros Comerciales).
    - Date: Convert to ISO (YYYY-MM-DD HH:MM). If missing, return null.
 
-5. BRAND ("marca")
-   - Extract the manufacturer. For store brands, use "Hacendado", "Carrefour", "Bosque Verde", etc. If unknown, use "Generica".
+7. EXTREME OCR FRAGMENTATION & COLUMN MAPPING
+   - Prices and items may be heavily disjointed. Carefully map the floating prices (especially negative ones) to their corresponding discount descriptions.
 
-6. PRODUCT NAME ("producto") — CLEAN TITLE CASE
-   - Remove noise: Store IDs, asterisks, arrows (↓), "B. ENER.", "REF.".
-   - Fix OCR fused characters and expand abbreviations.
-   - REMOVE TRAILING TAX INDICATORS: Spanish receipts often end product names with a single isolated letter or number (e.g., " O", " 0", " A", " B", "*"). You MUST remove these trailing isolated characters. Example: "TEA VERD MARACUYA O" -> "Tea Verd Maracuya".
+8. DEDUPLICATION & GHOST READING PREVENTION (CRITICAL)
+   - NEVER duplicate an item unless it explicitly appears printed on multiple separate lines on the receipt.
+   - Do not confuse descriptive sub-lines, weight info, or OCR ghosting as separate products.
+   - If you are about to output two identical items (same name, same price), stop and double-check the raw text. If the raw text only shows that line once, you MUST output it only once.
+   - If a product has a quantity of >1 (e.g., "2 PICO RST.RUSTICO"), output a SINGLE JSON object with "cantidad": 2. NEVER split it into two JSON objects of quantity 1.
 
-7. QUANTITY & PRICE ("cantidad" & "precio") & TOTAL
-   - IMPORTANT: Use UNIT values. "precio" is the price of ONE item.
-   - For weighted produce (fresh fruit/vegetables), set "categoria" = "Fruta/Verdura".
-     * "cantidad" MUST be the WEIGHT in kilograms (kg), with decimals (e.g., 0.750).
-     * "precio" MUST be the PRICE PER KILOGRAM (€/kg), NOT the line total.
-     * If the receipt shows total + €/kg, derive the weight. If it shows total + weight, derive €/kg.
-   - For non-weighted items, "cantidad" should be an integer (1, 2, 3...). If OCR reads "2.01", fix it to "2".
-   - Extract the final receipt sum for the root "total" field.
-   - Ensure "precio", "cantidad", and "total" are NUMBERS (float/int), not strings.
+9. ELIMINATE TRUNCATED GHOST READINGS (CRITICAL)
+   - The OCR often creates partial/truncated duplicate lines (e.g., reading a fragment like "CARBASS VERD" right next to the real item "CARBASSO VERD").
+   - If you detect a product that is clearly a fragmented, truncated, or ghost reading of another product, YOU MUST DELETE IT. 
+   - Do NOT attempt to fix its name and DO NOT include it in the final "productos" array. Just completely ignore it and drop it from the JSON.
 
-8. EXTREME OCR FRAGMENTATION & COLUMN MAPPING
-   - Receipts often have extreme OCR fragmentation where ALL item names are read first, and ALL prices are read 10+ lines later. 
-   - You MUST logically map the detached prices to the items. 
-   - If a price is cut off at the comma (e.g., "-0," on one line and "90" on another), YOU MUST CONCATENATE THEM. A comma at the end of a number ALWAYS means the decimal part is on a following line.
-
-9. FINAL REMINDER
-   - Return ONLY raw JSON. No markdown blocks. No text.
+10. FINAL REMINDER
+    - Return ONLY raw JSON. No markdown blocks. No explanations.
 """
 
 def normalizar_nombre_producto(texto: str) -> str:

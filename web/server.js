@@ -14,27 +14,38 @@ const crypto     = require('crypto');
 const speakeasy  = require('speakeasy');
 const QRCode     = require('qrcode');
 
-// --- 1. IMPORTAR LIBRERÍA DE PROMETHEUS ---
 const promClient = require('prom-client');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
-const OCR_URL = `http://${process.env.OCR_HOST || 'ocr'}:8000/analizar`;
-const OFF_SEARCH_URL = process.env.OFF_SEARCH_URL || 'https://world.openfoodfacts.org/cgi/search.pl';
+
+// ── Entorno ───────────────────────────────────────────────────
+// En producción se espera NODE_ENV=production (o trust proxy activo)
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+
+// Si la app está detrás de un reverse proxy (Nginx, Traefik…),
+// Express necesita saber que el proxy es de confianza para leer
+// el encabezado X-Forwarded-Proto y así marcar correctamente las cookies.
+if (IS_PRODUCTION) {
+  app.set('trust proxy', 1);
+}
+
+const OCR_URL         = `http://${process.env.OCR_HOST || 'ocr'}:8000/analizar`;
+const OFF_SEARCH_URL  = process.env.OFF_SEARCH_URL  || 'https://world.openfoodfacts.org/cgi/search.pl';
 const OFF_SECONDARY_URL = process.env.OFF_SECONDARY_URL || 'https://world.openfoodfacts.net/cgi/search.pl';
-const OFF_FALLBACK_URL = process.env.OFF_FALLBACK_URL || 'http://proxy/api/openfoodfacts/cgi/search.pl';
-const OFF_TIMEOUT_MS = Number.parseInt(process.env.OFF_TIMEOUT_MS || '10000', 10);
-const OPF_BASE_URL = process.env.OPF_BASE_URL || 'https://world.openfoodfacts.org';
-const OPF_LOOKUP_PATH = process.env.OPF_LOOKUP_PATH || '/api/v2/product';
-const OPF_CREATE_PATH = process.env.OPF_CREATE_PATH || '/cgi/product_jqm2.pl';
-const OPF_IMAGE_PATH = process.env.OPF_IMAGE_PATH || '/cgi/product_image_upload.pl';
-const OPF_TIMEOUT_MS = Number.parseInt(process.env.OPF_TIMEOUT_MS || '12000', 10);
-const OPF_USER_ID = process.env.OPF_USER_ID || '';
-const OPF_PASSWORD = process.env.OPF_PASSWORD || '';
-const OPF_USER_AGENT = process.env.OPF_USER_AGENT || 'Esitiron/1.0 (https://tickets.esitiron.app)';
+const OFF_FALLBACK_URL  = process.env.OFF_FALLBACK_URL  || 'http://proxy/api/openfoodfacts/cgi/search.pl';
+const OFF_TIMEOUT_MS    = Number.parseInt(process.env.OFF_TIMEOUT_MS || '10000', 10);
+const OPF_BASE_URL      = process.env.OPF_BASE_URL      || 'https://world.openfoodfacts.org';
+const OPF_LOOKUP_PATH   = process.env.OPF_LOOKUP_PATH   || '/api/v2/product';
+const OPF_CREATE_PATH   = process.env.OPF_CREATE_PATH   || '/cgi/product_jqm2.pl';
+const OPF_IMAGE_PATH    = process.env.OPF_IMAGE_PATH    || '/cgi/product_image_upload.pl';
+const OPF_TIMEOUT_MS    = Number.parseInt(process.env.OPF_TIMEOUT_MS || '12000', 10);
+const OPF_USER_ID       = process.env.OPF_USER_ID       || '';
+const OPF_PASSWORD      = process.env.OPF_PASSWORD      || '';
+const OPF_USER_AGENT    = process.env.OPF_USER_AGENT    || 'Esitiron/1.0 (https://tickets.esitiron.app)';
 const OPENFACTS_API_KEY = process.env.OPENFACTS_API_KEY || '';
 
-// --- 2. CONFIGURACIÓN DE MÉTRICAS (PROMETHEUS) ---
+// ── Prometheus ────────────────────────────────────────────────
 const register = new promClient.Registry();
 promClient.collectDefaultMetrics({ register });
 
@@ -44,8 +55,7 @@ const ticketsSubidosCounter = new promClient.Counter({
 });
 register.registerMetric(ticketsSubidosCounter);
 
-
-// ── CIFRADO AES-256-GCM ──────────────────────────────────────
+// ── Cifrado AES-256-GCM ───────────────────────────────────────
 const SESSION_SECRET = process.env.SESSION_SECRET || 'cambia_esto';
 const ENCRYPTION_KEY = crypto.scryptSync(SESSION_SECRET, 'salt', 32);
 const IV_LENGTH = 16;
@@ -73,14 +83,13 @@ function decrypt(text) {
   return decrypted;
 }
 
-// ── Directorio avatares ──────────────────────────────────────
+// ── Directorios ───────────────────────────────────────────────
 const AVATARS_DIR = path.join(__dirname, 'public', 'avatars');
 if (!fs.existsSync(AVATARS_DIR)) fs.mkdirSync(AVATARS_DIR, { recursive: true });
 const OPF_UPLOADS_DIR = path.join(__dirname, 'private', 'opf_uploads');
 if (!fs.existsSync(OPF_UPLOADS_DIR)) fs.mkdirSync(OPF_UPLOADS_DIR, { recursive: true });
 
-// ── BD ───────────────────────────────────────────────────────
-// ✅ CORRECTO: charset = nombre del juego de caracteres
+// ── Base de datos ─────────────────────────────────────────────
 const dbPool = mysql.createPool({
   host:               process.env.DB_HOST     || 'db',
   user:               process.env.DB_USER     || 'user_seguro',
@@ -92,7 +101,6 @@ const dbPool = mysql.createPool({
   timezone:           '+00:00',
 });
 
-// ✅ CORRECTO: SET NAMES también especifica el collation
 if (dbPool.pool && typeof dbPool.pool.on === 'function') {
   dbPool.pool.on('connection', (connection) => {
     connection.query("SET NAMES 'utf8mb4' COLLATE 'utf8mb4_unicode_ci'", (err) => {
@@ -104,7 +112,7 @@ if (dbPool.pool && typeof dbPool.pool.on === 'function') {
 let ID_PRODUCTO_DESCUENTO = null;
 
 async function initDB() {
-  const[rows] = await dbPool.execute("SELECT id FROM productos_maestros WHERE nombre = 'Descuento' LIMIT 1");
+  const [rows] = await dbPool.execute("SELECT id FROM productos_maestros WHERE nombre = 'Descuento' LIMIT 1");
   if (rows.length > 0) {
     ID_PRODUCTO_DESCUENTO = rows[0].id;
   } else {
@@ -177,7 +185,7 @@ async function initDB() {
       PRIMARY KEY (id),
       INDEX idx_producto_estado (id_producto, estado),
       FOREIGN KEY (id_producto) REFERENCES productos_maestros(id) ON DELETE CASCADE,
-      FOREIGN KEY (id_usuario) REFERENCES usuarios(id) ON DELETE CASCADE
+      FOREIGN KEY (id_usuario)  REFERENCES usuarios(id) ON DELETE CASCADE
     ) ENGINE=InnoDB
   `);
 
@@ -187,17 +195,17 @@ async function initDB() {
 
   await dbPool.execute(`
     CREATE TABLE IF NOT EXISTS opf_drafts (
-      id            INT UNSIGNED NOT NULL AUTO_INCREMENT,
-      id_usuario    INT UNSIGNED NOT NULL,
-      ean           VARCHAR(50)  NOT NULL,
-      nombre        VARCHAR(200) NOT NULL,
-      marca         VARCHAR(100) NOT NULL,
-      foto_path     VARCHAR(255) DEFAULT NULL,
-      estado        ENUM('draft','sent','failed') NOT NULL DEFAULT 'draft',
-      opf_response  TEXT         DEFAULT NULL,
-      error_msg     VARCHAR(500) DEFAULT NULL,
-      creado_en     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      actualizado_en DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      id             INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      id_usuario     INT UNSIGNED NOT NULL,
+      ean            VARCHAR(50)  NOT NULL,
+      nombre         VARCHAR(200) NOT NULL,
+      marca          VARCHAR(100) NOT NULL,
+      foto_path      VARCHAR(255) DEFAULT NULL,
+      estado         ENUM('draft','sent','failed') NOT NULL DEFAULT 'draft',
+      opf_response   TEXT         DEFAULT NULL,
+      error_msg      VARCHAR(500) DEFAULT NULL,
+      creado_en      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      actualizado_en DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
       INDEX idx_opf_usuario (id_usuario),
       INDEX idx_opf_ean (ean),
@@ -220,7 +228,7 @@ async function initDB() {
       actualizado_en DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
       INDEX idx_opf_pend_usuario (id_usuario),
-      INDEX idx_opf_pend_estado (estado),
+      INDEX idx_opf_pend_estado  (estado),
       FOREIGN KEY (id_usuario) REFERENCES usuarios(id) ON DELETE CASCADE
     ) ENGINE=InnoDB
   `);
@@ -239,8 +247,7 @@ async function initDB() {
   `).catch(() => {});
 
   console.log('[DB] Todas las tablas listas');
-  
-  // --- 3. RECARGA INICIAL DE LA MÉTRICA ---
+
   try {
     const [[result]] = await dbPool.execute('SELECT COUNT(id) AS total FROM tiquets');
     if (result && result.total > 0) {
@@ -252,7 +259,7 @@ async function initDB() {
   }
 }
 
-// ── HELPERS ──────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────
 const TIENDAS_MAP = {
   'MERCADONA':'Mercadona','CONSUM':'Consum','LIDL':'Lidl','ALDI':'Aldi',
   'CARREFOUR':'Carrefour','ALCAMPO':'Alcampo','DIA':'Dia','CAPRABO':'Caprabo',
@@ -293,28 +300,28 @@ function esProductoDescuento(producto) {
 }
 
 async function verificarConsenso(conn, idVerificacion) {
-  const [[verif]] = await conn.execute('SELECT * FROM verificaciones_barcode WHERE id = ?',[idVerificacion]);
+  const [[verif]] = await conn.execute('SELECT * FROM verificaciones_barcode WHERE id = ?', [idVerificacion]);
   if (!verif) return;
   const total = verif.votos_si + verif.votos_no;
   if (total < 3) return;
   const ratio = verif.votos_si / total;
   if (ratio >= 0.8) {
-    await conn.execute("UPDATE verificaciones_barcode SET estado = 'verificado' WHERE id = ?",[idVerificacion]);
-    await conn.execute('UPDATE productos_maestros SET codigo_barras = ? WHERE id = ?',[verif.codigo_barras, verif.id_producto]);
+    await conn.execute("UPDATE verificaciones_barcode SET estado = 'verificado' WHERE id = ?", [idVerificacion]);
+    await conn.execute('UPDATE productos_maestros SET codigo_barras = ? WHERE id = ?', [verif.codigo_barras, verif.id_producto]);
     console.log(`[Consenso] Verificación ${idVerificacion} APROBADA`);
   } else if (ratio < 0.3) {
-    await conn.execute("UPDATE verificaciones_barcode SET estado = 'rechazado' WHERE id = ?",[idVerificacion]);
-    await conn.execute('UPDATE productos_maestros SET codigo_barras = NULL WHERE id = ? AND codigo_barras = ?',[verif.id_producto, verif.codigo_barras]);
+    await conn.execute("UPDATE verificaciones_barcode SET estado = 'rechazado' WHERE id = ?", [idVerificacion]);
+    await conn.execute('UPDATE productos_maestros SET codigo_barras = NULL WHERE id = ? AND codigo_barras = ?', [verif.id_producto, verif.codigo_barras]);
     console.log(`[Consenso] Verificación ${idVerificacion} RECHAZADA`);
   }
 }
 
-// ── MULTER ───────────────────────────────────────────────────
+// ── Multer ────────────────────────────────────────────────────
 const uploadTiquet = multer({
   storage: multer.memoryStorage(),
   limits:  { fileSize: 15 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
-    const ALLOWED =['image/jpeg','image/png','image/webp','image/gif','application/pdf'];
+    const ALLOWED = ['image/jpeg','image/png','image/webp','image/gif','application/pdf'];
     if (ALLOWED.includes(file.mimetype)) cb(null, true);
     else cb(new Error('Formato no permitido.'));
   },
@@ -336,24 +343,10 @@ const uploadAvatar = multer({
 });
 
 const AVATAR_MAGIC = [
-  {
-    ext: '.jpg',
-    test: (buf) => buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff,
-  },
-  {
-    ext: '.png',
-    test: (buf) => buf.length >= 8
-      && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47
-      && buf[4] === 0x0d && buf[5] === 0x0a && buf[6] === 0x1a && buf[7] === 0x0a,
-  },
-  {
-    ext: '.gif',
-    test: (buf) => buf.length >= 6 && (buf.toString('ascii', 0, 6) === 'GIF87a' || buf.toString('ascii', 0, 6) === 'GIF89a'),
-  },
-  {
-    ext: '.webp',
-    test: (buf) => buf.length >= 12 && buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP',
-  },
+  { ext: '.jpg',  test: (buf) => buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff },
+  { ext: '.png',  test: (buf) => buf.length >= 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47 && buf[4] === 0x0d && buf[5] === 0x0a && buf[6] === 0x1a && buf[7] === 0x0a },
+  { ext: '.gif',  test: (buf) => buf.length >= 6 && (buf.toString('ascii', 0, 6) === 'GIF87a' || buf.toString('ascii', 0, 6) === 'GIF89a') },
+  { ext: '.webp', test: (buf) => buf.length >= 12 && buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP' },
 ];
 
 async function detectarAvatarPorMagic(filePath) {
@@ -371,7 +364,7 @@ async function detectarAvatarPorMagic(filePath) {
 
 const uploadOpf = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 6 * 1024 * 1024 },
+  limits:  { fileSize: 6 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     const allowed = ['image/jpeg','image/png','image/webp'];
     if (allowed.includes(file.mimetype)) cb(null, true);
@@ -379,32 +372,54 @@ const uploadOpf = multer({
   },
 });
 
-const PUBLIC_DIR = path.join(__dirname, 'public');
-const CLASS_CSS_DIR = path.join(PUBLIC_DIR, 'css', 'class');
+// ── Estáticos y middleware ────────────────────────────────────
+const PUBLIC_DIR      = path.join(__dirname, 'public');
+const CLASS_CSS_DIR   = path.join(PUBLIC_DIR, 'css', 'class');
 const LEGACY_CLASS_DIR = path.join(PUBLIC_DIR, 'class');
 
 app.use('/css/class', express.static(CLASS_CSS_DIR));
 app.use('/css/class', express.static(LEGACY_CLASS_DIR));
-app.use('/class', express.static(CLASS_CSS_DIR));
-app.use('/class', express.static(LEGACY_CLASS_DIR));
+app.use('/class',     express.static(CLASS_CSS_DIR));
+app.use('/class',     express.static(LEGACY_CLASS_DIR));
 app.use(express.static(PUBLIC_DIR));
 app.use('/static', express.static(PUBLIC_DIR));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
+
+// ══════════════════════════════════════════════════════════════
+// SESIÓN SEGURA
+// ──────────────────────────────────────────────────────────────
+// • secure: true   → la cookie SOLO se envía por HTTPS.
+//                    En desarrollo (NODE_ENV != production) se
+//                    desactiva para poder usar HTTP en localhost.
+// • sameSite: 'strict' → bloquea el envío de la cookie en
+//                    peticiones cross-site (protección CSRF).
+// • httpOnly: true → JavaScript del cliente no puede leer la
+//                    cookie (protección XSS).
+// ══════════════════════════════════════════════════════════════
 app.use(session({
   secret:            SESSION_SECRET,
   resave:            false,
   saveUninitialized: false,
-  cookie:            { httpOnly: true, maxAge: 7*24*60*60*1000 },
+  cookie: {
+    httpOnly: true,
+    sameSite: 'strict',
+    secure:   IS_PRODUCTION,          // true en prod (HTTPS), false en dev (HTTP)
+    maxAge:   7 * 24 * 60 * 60 * 1000, // 7 días
+  },
 }));
 
+// ── Cabeceras de seguridad globales ───────────────────────────
 app.use((_req, res, next) => {
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('X-Content-Type-Options',    'nosniff');
+  res.setHeader('X-Frame-Options',           'DENY');
+  res.setHeader('Referrer-Policy',           'strict-origin-when-cross-origin');
+  // Añadida: evita que el navegador guarde caché de páginas privadas
+  res.setHeader('Cache-Control',             'no-store');
   next();
 });
 
+// ── Middlewares de autenticación ──────────────────────────────
 const auth = (req, res, next) => {
   if (!req.session.usuario) return res.redirect('/login?error=Debes+iniciar+sesión');
   next();
@@ -420,17 +435,16 @@ const adminPageOnly = (req, res, next) => {
   next();
 };
 
-// ── ENDPOINTS TÉCNICOS (SIN AUTH) ────────────────────────────
-app.get('/health', (_,res) => res.json({ status:'ok' }));
+// ── Endpoints técnicos (sin auth) ────────────────────────────
+app.get('/health', (_, res) => res.json({ status: 'ok' }));
 
 app.get('/debug-charset', async (req, res) => {
-  const [[vars]] = await dbPool.execute("SHOW VARIABLES LIKE 'character_set_client'");
+  const [[vars]]  = await dbPool.execute("SHOW VARIABLES LIKE 'character_set_client'");
   const [[names]] = await dbPool.execute("SELECT @@character_set_connection AS conn, @@collation_connection AS coll");
-  const [[row]] = await dbPool.execute("SELECT pais, HEX(pais) AS hex_pais FROM tiquets LIMIT 1");
+  const [[row]]   = await dbPool.execute("SELECT pais, HEX(pais) AS hex_pais FROM tiquets LIMIT 1");
   res.json({ vars, names, row });
 });
 
-// --- 4. EXPOSICIÓN DE MÉTRICAS A PROMETHEUS ---
 app.get('/metrics', async (req, res) => {
   try {
     res.set('Content-Type', register.contentType);
@@ -440,85 +454,52 @@ app.get('/metrics', async (req, res) => {
   }
 });
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 🔐 SEGURIDAD: Endpoint para servir avatares (SOLO USUARIOS AUTENTICADOS)
-// ═══════════════════════════════════════════════════════════════════════════
-/**
- * GET /avatar/:filename
- * 
- * Sirve avatares SOLO a usuarios autenticados
- * Previene:
- *  - Acceso directo sin autenticación
- *  - Directory traversal attacks (../)
- *  - Carga de archivos maliciosos
- * 
- * Uso en HTML:
- *  <img src="/avatar/avatar_1_1776790437367.png">
- */
+// ── Avatar seguro ─────────────────────────────────────────────
 app.get('/avatar/:filename', (req, res) => {
-  // 1️⃣ VERIFICAR AUTENTICACIÓN
   if (!req.session || !req.session.usuario) {
     console.warn(`[SECURITY] Intento de acceso a avatar sin autenticación desde ${req.ip}`);
     return res.status(403).json({ error: 'No autorizado' });
   }
-
-  const filename = req.params.filename;
+  const filename   = req.params.filename;
   const avatarsDir = path.join(__dirname, 'public', 'avatars');
-  const filepath = path.join(avatarsDir, filename);
+  const filepath   = path.join(avatarsDir, filename);
 
-  // 2️⃣ PREVENIR DIRECTORY TRAVERSAL ATTACKS
-  // Ej: intenta evitar: /avatar/../../../etc/passwd
   if (!filepath.startsWith(avatarsDir)) {
     console.warn(`[SECURITY] Intento de directory traversal: ${filepath}`);
     return res.status(403).json({ error: 'Acceso denegado' });
   }
 
-  // 3️⃣ VALIDAR QUE EL ARCHIVO EXISTE Y ES UN ARCHIVO
   fs.stat(filepath, (err, stats) => {
-    if (err || !stats.isFile()) {
-      console.debug(`[AVATAR] Archivo no encontrado: ${filename}`);
-      return res.status(404).json({ error: 'Avatar no encontrado' });
-    }
-
-    // 4️⃣ VALIDAR EXTENSIÓN DE ARCHIVO
+    if (err || !stats.isFile()) return res.status(404).json({ error: 'Avatar no encontrado' });
     const validExtensions = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
     const fileExt = path.extname(filepath).toLowerCase();
-    
-    if (!validExtensions.includes(fileExt)) {
-      console.warn(`[SECURITY] Extensión no permitida: ${fileExt}`);
-      return res.status(403).json({ error: 'Tipo de archivo no permitido' });
-    }
-
-    // 5️⃣ SERVIR EL ARCHIVO CON HEADERS SEGUROS
-    console.info(`[AVATAR] Usuario ${req.session.usuario.id} descargó: ${filename}`);
-    
+    if (!validExtensions.includes(fileExt)) return res.status(403).json({ error: 'Tipo de archivo no permitido' });
     res.set({
-      'Cache-Control': 'public, max-age=86400',     // Cache 1 día
-      'X-Content-Type-Options': 'nosniff',          // Prevenir MIME sniffing
-      'Content-Security-Policy': "default-src 'none'", // Máxima protección
-      'X-Frame-Options': 'DENY',                    // Prevenir clickjacking
+      'Cache-Control':             'public, max-age=86400',
+      'X-Content-Type-Options':    'nosniff',
+      'Content-Security-Policy':   "default-src 'none'",
+      'X-Frame-Options':           'DENY',
     });
-
-    res.sendFile(filepath, (err) => {
-      if (err) {
-        console.error(`[AVATAR] Error sirviendo archivo: ${err.message}`);
-        res.status(500).json({ error: 'Error al servir archivo' });
-      }
-    });
+    res.sendFile(filepath);
   });
 });
 
-// ── NUNJUCKS ─────────────────────────────────────────────────
+// ── Nunjucks ──────────────────────────────────────────────────
 const env = nunjucks.configure('views', { autoescape: true, express: app, watch: false });
 env.addGlobal('url_for', (route, kwargs) => {
-  const map = { 'tiquets.dashboard':'/dashboard', 'tiquets.todos_productos':'/productos', 'auth.login':'/login', 'auth.logout':'/logout' };
-  if (route === 'static') return '/static/'+(kwargs?.filename||'');
+  const map = {
+    'tiquets.dashboard':      '/dashboard',
+    'tiquets.todos_productos':'/productos',
+    'auth.login':             '/login',
+    'auth.logout':            '/logout',
+  };
+  if (route === 'static') return '/static/' + (kwargs?.filename || '');
   return map[route] || '/';
 });
-env.addFilter('format',  v => parseFloat(v||0).toFixed(2));
-env.addFilter('lower',   v => (v||'').toLowerCase());
-env.addFilter('upper',   v => (v||'').toUpperCase());
-env.addFilter('round',   v => Math.round(parseFloat(v)||0));
+env.addFilter('format',        v => parseFloat(v || 0).toFixed(2));
+env.addFilter('lower',         v => (v || '').toLowerCase());
+env.addFilter('upper',         v => (v || '').toUpperCase());
+env.addFilter('round',         v => Math.round(parseFloat(v) || 0));
 env.addFilter('smartCant', v => {
   const n = parseFloat(v);
   if (isNaN(n)) return v;
@@ -540,25 +521,27 @@ env.addFilter('unique', (arr, attr) => {
 });
 env.addFilter('formatDate', v => {
   if (!v) return '—';
-  try { return new Date(v).toLocaleString('es-ES', { timeZone:'Europe/Madrid', day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' }); } catch { return '—'; }
+  try { return new Date(v).toLocaleString('es-ES', { timeZone: 'Europe/Madrid', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch { return '—'; }
 });
 env.addFilter('formatDateShort', v => {
   if (!v) return '—';
-  try { return new Date(v).toLocaleDateString('es-ES', { timeZone:'Europe/Madrid', day:'2-digit', month:'2-digit', year:'numeric' }); } catch { return '—'; }
+  try { return new Date(v).toLocaleDateString('es-ES', { timeZone: 'Europe/Madrid', day: '2-digit', month: '2-digit', year: 'numeric' }); } catch { return '—'; }
 });
 
 function navLocals(req) {
   return {
-    usuario: req.session.usuario?.username || '',
-    usuario_email: req.session.usuario?.email || '',
-    avatar_url: req.session.usuario?.avatar ? '/avatar/' + path.basename(req.session.usuario.avatar) : null,
+    usuario:       req.session.usuario?.username || '',
+    usuario_email: req.session.usuario?.email    || '',
+    avatar_url:    req.session.usuario?.avatar
+      ? '/avatar/' + path.basename(req.session.usuario.avatar)
+      : null,
     es_admin: !!req.session.usuario?.es_admin,
   };
 }
 
-// ── CONSULTAS BD ─────────────────────────────────────────────
+// ── Consultas BD ──────────────────────────────────────────────
 async function getUser(username) {
-  const[r] = await dbPool.execute('SELECT * FROM usuarios WHERE username=?', [username]);
+  const [r] = await dbPool.execute('SELECT * FROM usuarios WHERE username=?', [username]);
   return r[0] || null;
 }
 
@@ -579,26 +562,26 @@ async function getTiquets(uid, limit = null) {
 
 async function getTotalesPeriodo(uid) {
   const ahora = nowMadrid();
-  const d = ahora.getDay() || 7;
-  const iS = new Date(ahora); iS.setDate(ahora.getDate() - d + 1); iS.setHours(0,0,0,0);
+  const d  = ahora.getDay() || 7;
+  const iS = new Date(ahora); iS.setDate(ahora.getDate() - d + 1); iS.setHours(0, 0, 0, 0);
   const iM = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
   const iA = new Date(ahora.getFullYear(), 0, 1);
   const qG  = 'SELECT COALESCE(SUM(total_tiquet),0) AS g, COUNT(*) AS n FROM tiquets WHERE id_usuario=? AND fecha_compra>=?';
   const qGT = 'SELECT COALESCE(SUM(total_tiquet),0) AS g, COUNT(*) AS n FROM tiquets WHERE id_usuario=?';
-  const [[sem],[mes],[anyo],[tot]] = await Promise.all([
+  const [[sem], [mes], [anyo], [tot]] = await Promise.all([
     dbPool.execute(qG,  [uid, iS]),
-    dbPool.execute(qG,[uid, iM]),
-    dbPool.execute(qG,[uid, iA]),
+    dbPool.execute(qG,  [uid, iM]),
+    dbPool.execute(qG,  [uid, iA]),
     dbPool.execute(qGT, [uid]),
   ]);
-  const fmt = x => parseFloat(x||0).toFixed(2);
+  const fmt = x => parseFloat(x || 0).toFixed(2);
   return {
-    semana: fmt(sem[0].g), mes: fmt(mes[0].g), anyo: fmt(anyo[0].g), total: fmt(tot[0].g),
-    n_semana: sem[0].n, n_mes: mes[0].n, n_anyo: anyo[0].n, n_total: tot[0].n,
-    avg_semana: sem[0].n ? fmt(sem[0].g/sem[0].n) : '0.00',
-    avg_mes:    mes[0].n ? fmt(mes[0].g/mes[0].n) : '0.00',
-    avg_anyo:   anyo[0].n ? fmt(anyo[0].g/anyo[0].n) : '0.00',
-    avg_total:  tot[0].n ? fmt(tot[0].g/tot[0].n) : '0.00',
+    semana: fmt(sem[0].g),  mes:  fmt(mes[0].g),  anyo: fmt(anyo[0].g), total: fmt(tot[0].g),
+    n_semana: sem[0].n,     n_mes: mes[0].n,       n_anyo: anyo[0].n,   n_total: tot[0].n,
+    avg_semana: sem[0].n  ? fmt(sem[0].g  / sem[0].n)  : '0.00',
+    avg_mes:    mes[0].n  ? fmt(mes[0].g  / mes[0].n)  : '0.00',
+    avg_anyo:   anyo[0].n ? fmt(anyo[0].g / anyo[0].n) : '0.00',
+    avg_total:  tot[0].n  ? fmt(tot[0].g  / tot[0].n)  : '0.00',
   };
 }
 
@@ -645,10 +628,10 @@ async function getProductosUsuario(uid, pais, supermercado) {
     JOIN productos_maestros pm ON pm.id = c.id_producto
     WHERE c.id_usuario = ? AND c.es_descuento = 0`;
   const params = [uid];
-  if (pais)        { query += ' AND t.pais = ?';        params.push(pais); }
-  if (supermercado){ query += ' AND t.supermercado = ?'; params.push(supermercado); }
+  if (pais)         { query += ' AND t.pais = ?';         params.push(pais); }
+  if (supermercado) { query += ' AND t.supermercado = ?'; params.push(supermercado); }
   query += ' ORDER BY t.fecha_compra DESC';
-  const[r] = await dbPool.execute(query, params);
+  const [r] = await dbPool.execute(query, params);
   return r;
 }
 
@@ -657,8 +640,8 @@ async function guardarTiquet(uid, datos) {
   const prods  = datos.productos || [];
   const productosNormalizados = prods.map(p => {
     const esDescuento = esProductoDescuento(p);
-    const categoria = esDescuento ? 'Descuento' : (p.categoria || 'Otros');
-    const esPeso = !esDescuento && esCategoriaPeso(categoria);
+    const categoria   = esDescuento ? 'Descuento' : (p.categoria || 'Otros');
+    const esPeso      = !esDescuento && esCategoriaPeso(categoria);
     let cantidad = parseFloat(String(p.cantidad ?? 1).replace(',', '.'));
     if (!Number.isFinite(cantidad)) cantidad = 1;
     cantidad = Math.abs(cantidad);
@@ -667,14 +650,7 @@ async function guardarTiquet(uid, datos) {
     let precio = parseFloat(String(p.precio ?? 0).replace(',', '.'));
     if (!Number.isFinite(precio)) precio = 0;
     precio = esDescuento ? -Math.abs(precio) : Math.abs(precio);
-    return {
-      ...p,
-      categoria,
-      es_descuento: esDescuento,
-      cantidad,
-      precio,
-      es_peso: esPeso,
-    };
+    return { ...p, categoria, es_descuento: esDescuento, cantidad, precio, es_peso: esPeso };
   });
   const total = productosNormalizados.reduce((acc, p) => acc + Math.round(p.cantidad * p.precio * 100), 0) / 100;
   let fecha = datos.fecha_tiquet ? parsearFechaTicket(datos.fecha_tiquet) : nowMadrid();
@@ -683,9 +659,7 @@ async function guardarTiquet(uid, datos) {
   const conn = await dbPool.getConnection();
   try {
     await conn.beginTransaction();
-
     const tiquetUUID = crypto.randomUUID();
-
     const [rt] = await conn.execute(
       'INSERT INTO tiquets (id_usuario, supermercado, total_tiquet, fecha_compra, uuid) VALUES (?,?,?,?,?)',
       [uid, super_, total, fecha, tiquetUUID]
@@ -699,22 +673,19 @@ async function guardarTiquet(uid, datos) {
       const cat    = p.categoria || 'Otros';
       const cant   = p.cantidad;
       const prec   = p.precio;
-
       let idP;
       let yaVinculado = 0;
 
       if (esD) {
         idP = ID_PRODUCTO_DESCUENTO;
       } else {
-        // --- 6. CONSULTAR EL DICCIONARIO INTELIGENTE ---
-        const[mapeo] = await conn.execute(
+        const [mapeo] = await conn.execute(
           'SELECT id_producto_maestro FROM diccionario_productos WHERE nombre_en_tiquet = ?', [nomOcr]
         );
-        
         if (mapeo.length > 0) {
           idP = mapeo[0].id_producto_maestro;
-          yaVinculado = 1; // El sistema lo ha enlazado automáticamente
-          await conn.execute('UPDATE diccionario_productos SET usos = usos + 1 WHERE nombre_en_tiquet = ?',[nomOcr]);
+          yaVinculado = 1;
+          await conn.execute('UPDATE diccionario_productos SET usos = usos + 1 WHERE nombre_en_tiquet = ?', [nomOcr]);
         } else {
           const [ex] = await conn.execute('SELECT id FROM productos_maestros WHERE nombre=?', [nom]);
           if (ex.length) {
@@ -725,31 +696,30 @@ async function guardarTiquet(uid, datos) {
             idP = ins.insertId;
           }
         }
-
         if (prec > 0) {
           await conn.execute(
-            'INSERT INTO historial_precios (id_producto, supermercado, precio) VALUES (?,?,?)',
-            [idP, super_, prec]
+            'INSERT INTO historial_precios (id_producto, supermercado, precio) VALUES (?,?,?)', [idP, super_, prec]
           ).catch(() => {});
         }
       }
-
       await conn.execute(
         `INSERT INTO compras (id_tiquet, id_usuario, id_producto, cantidad, precio_unitario, es_descuento, nombre_original, curado)
-         VALUES (?,?,?,?,?,?,?,?)`,[idT, uid, idP, cant, prec, esD, nomOcr, yaVinculado]
+         VALUES (?,?,?,?,?,?,?,?)`,
+        [idT, uid, idP, cant, prec, esD, nomOcr, yaVinculado]
       );
     }
-
     await conn.commit();
     return { id: idT, uuid: tiquetUUID };
-  } catch(e) { await conn.rollback(); throw e; } finally { conn.release(); }
+  } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }
 }
 
-// ── AUTH ─────────────────────────────────────────────────────
-app.get('/', (_,res) => res.redirect('/login'));
-app.get('/logout', (req,res) => req.session.destroy(() => res.redirect('/login')));
+// ════════════════════════════════════════════════════════════
+// AUTH
+// ════════════════════════════════════════════════════════════
+app.get('/', (_, res) => res.redirect('/login'));
+app.get('/logout', (req, res) => req.session.destroy(() => res.redirect('/login')));
 
-app.get('/login', (req,res) => {
+app.get('/login', (req, res) => {
   if (req.session.usuario) return res.redirect('/dashboard');
   const messages = [];
   if (req.query.error)   messages.push(['danger',  decodeURIComponent(req.query.error)]);
@@ -757,45 +727,36 @@ app.get('/login', (req,res) => {
   res.render('login.html', { messages });
 });
 
-app.post('/login', async (req,res) => {
+app.post('/login', async (req, res) => {
   const { accion, username, password, email } = req.body;
   if (!username || !password) return res.redirect('/login?error=Usuario+y+contraseña+requeridos');
   try {
     if (accion === 'registro') {
-      if (!email) return res.redirect('/login?error=Email+obligatorio');
-      if (username.length < 3) return res.redirect('/login?error=Usuario+mínimo+3+caracteres');
-      if (password.length < 8) return res.redirect('/login?error=Contraseña+mínimo+8+caracteres');
+      if (!email)               return res.redirect('/login?error=Email+obligatorio');
+      if (username.length < 3)  return res.redirect('/login?error=Usuario+mínimo+3+caracteres');
+      if (password.length < 8)  return res.redirect('/login?error=Contraseña+mínimo+8+caracteres');
       if (await getUser(username)) return res.redirect('/login?error=Usuario+ya+existe');
-      await dbPool.execute('INSERT INTO usuarios (username,email,password_hash,activo) VALUES (?,?,?,1)',[username, email, bcryptjs.hashSync(password, 12)]);
+      await dbPool.execute(
+        'INSERT INTO usuarios (username,email,password_hash,activo) VALUES (?,?,?,1)',
+        [username, email, bcryptjs.hashSync(password, 12)]
+      );
       return res.redirect('/login?success=Cuenta+creada');
     }
     const u = await getUser(username);
     if (!u || !bcryptjs.compareSync(password, u.password_hash) || !u.activo)
       return res.redirect('/login?error=Usuario+o+contraseña+incorrectos');
     if (u.totp_enabled) {
-      req.session.totp_pending = {
-        id: u.id,
-        username: u.username,
-        email: u.email,
-        avatar: u.avatar || null,
-        es_admin: u.es_admin === 1,
-      };
+      req.session.totp_pending = { id: u.id, username: u.username, email: u.email, avatar: u.avatar || null, es_admin: u.es_admin === 1 };
       return res.redirect('/login/2fa');
     }
-    req.session.usuario = {
-      id: u.id,
-      username: u.username,
-      email: u.email,
-      avatar: u.avatar || null,
-      es_admin: u.es_admin === 1,
-    };
+    req.session.usuario = { id: u.id, username: u.username, email: u.email, avatar: u.avatar || null, es_admin: u.es_admin === 1 };
     return res.redirect('/dashboard');
-  } catch(e) { console.error('[Auth]', e.message); res.redirect('/login?error=Error+servidor'); }
+  } catch (e) { console.error('[Auth]', e.message); res.redirect('/login?error=Error+servidor'); }
 });
 
 app.get('/login/2fa', (req, res) => {
   if (!req.session.totp_pending) return res.redirect('/login');
-  const messages =[];
+  const messages = [];
   if (req.query.error) messages.push(['danger', decodeURIComponent(req.query.error)]);
   res.render('login_2fa.html', { messages });
 });
@@ -812,7 +773,11 @@ app.post('/login/2fa', async (req, res) => {
   } else {
     const [codes] = await dbPool.execute('SELECT id, codigo_hash FROM codigos_recuperacion WHERE id_usuario=? AND usado=0', [pending.id]);
     for (const row of codes) {
-      if (bcryptjs.compareSync(token, row.codigo_hash)) { valid = true; await dbPool.execute('UPDATE codigos_recuperacion SET usado=1 WHERE id=?', [row.id]); break; }
+      if (bcryptjs.compareSync(token, row.codigo_hash)) {
+        valid = true;
+        await dbPool.execute('UPDATE codigos_recuperacion SET usado=1 WHERE id=?', [row.id]);
+        break;
+      }
     }
   }
   if (!valid) return res.redirect('/login/2fa?error=Código+incorrecto+o+ya+utilizado');
@@ -821,35 +786,37 @@ app.post('/login/2fa', async (req, res) => {
   return res.redirect('/dashboard');
 });
 
-// ── DASHBOARD ────────────────────────────────────────────────
-app.get('/dashboard', auth, async (req,res) => {
+// ════════════════════════════════════════════════════════════
+// DASHBOARD Y VISTAS PRINCIPALES
+// ════════════════════════════════════════════════════════════
+app.get('/dashboard', auth, async (req, res) => {
   try {
     const uid = req.session.usuario.id;
-    const[historial, resumen, totales, totalTiquets] = await Promise.all([
+    const [historial, resumen, totales, totalTiquets] = await Promise.all([
       getTiquets(uid, 5),
       getResumen(uid),
       getTotalesPeriodo(uid),
       dbPool.execute('SELECT COUNT(*) AS n FROM tiquets WHERE id_usuario=?', [uid]).then(([r]) => r[0].n),
     ]);
-    const messages =[];
+    const messages = [];
     if (req.query.error)   messages.push(['danger',  decodeURIComponent(req.query.error)]);
     if (req.query.success) messages.push(['success', decodeURIComponent(req.query.success)]);
     res.render('dashboard.html', { ...navLocals(req), historial, resumen, totales, total: totales.total, totalTiquets, messages });
-  } catch(e) { console.error('[Dashboard]', e.message); res.redirect('/login?error=Error'); }
+  } catch (e) { console.error('[Dashboard]', e.message); res.redirect('/login?error=Error'); }
 });
 
-app.get('/tiquets', auth, async (req,res) => {
+app.get('/tiquets', auth, async (req, res) => {
   try {
     const uid = req.session.usuario.id;
-    const[historial, totales] = await Promise.all([ getTiquets(uid), getTotalesPeriodo(uid) ]);
-    const messages =[];
+    const [historial, totales] = await Promise.all([getTiquets(uid), getTotalesPeriodo(uid)]);
+    const messages = [];
     if (req.query.error)   messages.push(['danger',  decodeURIComponent(req.query.error)]);
     if (req.query.success) messages.push(['success', decodeURIComponent(req.query.success)]);
     res.render('todos_tiquets.html', { ...navLocals(req), historial, totales, total: totales.total, messages });
-  } catch(e) { console.error('[Tiquets]', e.message); res.redirect('/dashboard?error=Error'); }
+  } catch (e) { console.error('[Tiquets]', e.message); res.redirect('/dashboard?error=Error'); }
 });
 
-// ── OCR / PREVIEW / CONFIRMAR ────────────────────────────────
+// ── OCR / preview / confirmar ─────────────────────────────────
 app.post('/subir_tiquet', auth, (req, res) => {
   uploadTiquet.single('foto_tiquet')(req, res, async (err) => {
     if (err) return res.redirect('/dashboard?error=' + encodeURIComponent(err.message));
@@ -858,94 +825,104 @@ app.post('/subir_tiquet', auth, (req, res) => {
       const form = new FormData();
       form.append('file', req.file.buffer, { filename: req.file.originalname, contentType: req.file.mimetype });
       const r = await axios.post(OCR_URL, form, { headers: form.getHeaders(), timeout: 90000 });
+
+      if (r.data && Array.isArray(r.data.productos)) {
+        r.data.productos = r.data.productos.reduce((acc, current) => {
+          const duplicado = acc.find(item =>
+            item.producto.toLowerCase().trim() === current.producto.toLowerCase().trim() &&
+            item.precio === current.precio
+          );
+          if (duplicado) { duplicado.cantidad += current.cantidad; }
+          else            { acc.push(current); }
+          return acc;
+        }, []);
+      }
       req.session.tiquetPendent = r.data;
       return res.redirect('/preview');
-    } catch(e) { return res.redirect('/dashboard?error=Error+procesando+imagen'); }
+    } catch (e) {
+      return res.redirect('/dashboard?error=Error+procesando+imagen');
+    }
   });
 });
 
-app.get('/preview', auth, (req,res) => {
-  const d = req.session.tiquetPendent; if (!d) return res.redirect('/dashboard');
+app.get('/preview', auth, (req, res) => {
+  const d = req.session.tiquetPendent;
+  if (!d) return res.redirect('/dashboard');
   const sinP = !d.productos || d.productos.length === 0;
   res.render('tiquet_preview.html', {
-    ...navLocals(req), supermercado: normalizarTienda(d.supermercado||''),
-    productos: d.productos||[], total: parseFloat(d.total||0).toFixed(2),
-    fecha_tiquet: d.fecha_tiquet||null, hay_error: d.error||sinP,
-    error_msg: d.error||(sinP?'Sin productos':null), messages:[],
+    ...navLocals(req),
+    supermercado: normalizarTienda(d.supermercado || ''),
+    productos:    d.productos || [],
+    total:        parseFloat(d.total || 0).toFixed(2),
+    fecha_tiquet: d.fecha_tiquet || null,
+    hay_error:    d.error || sinP,
+    error_msg:    d.error || (sinP ? 'Sin productos' : null),
+    messages:     [],
   });
 });
 
-app.post('/confirmar', auth, async (req,res) => {
-  // Limpiamos la sesión porque ya no la necesitamos
-  delete req.session.tiquetPendent; 
-
+app.post('/confirmar', auth, async (req, res) => {
+  delete req.session.tiquetPendent;
   try {
-    // 1. Recogemos los datos base del formulario HTML
     const formDatos = {
       supermercado: req.body.supermercado,
       fecha_tiquet: req.body.fecha_tiquet,
-      total: req.body.total,
-      productos: []
+      total:        req.body.total,
+      productos:    [],
     };
-
-    // 2. Procesamos las líneas de los productos editados
     if (req.body.productos) {
-      // Object.values evita errores si Express recibe un objeto con índices salteados (ej. borraste la fila 2)
       const prodList = Object.values(req.body.productos);
-      
       formDatos.productos = prodList.map(p => ({
-        cantidad: p.cantidad,
-        marca: p.marca,
-        producto: p.producto,
-        categoria: p.categoria,
-        precio: p.precio,
-        es_descuento: p.es_descuento === '1', // Convertimos el '1' o '0' del formulario a boolean
-        nombre_ocr: p.nombre_ocr || p.producto
+        cantidad:    p.cantidad,
+        marca:       p.marca,
+        producto:    p.producto,
+        categoria:   p.categoria,
+        precio:      p.precio,
+        es_descuento: p.es_descuento === '1',
+        nombre_ocr:  p.nombre_ocr || p.producto,
       }));
     }
-
-    // 3. ¡Ahora sí! Guardamos los datos que ha editado el usuario
     await guardarTiquet(req.session.usuario.id, formDatos);
-    ticketsSubidosCounter.inc(); 
+    ticketsSubidosCounter.inc();
     res.redirect('/dashboard?success=Tiquet+guardado+y+editado+con+éxito');
-
-  } catch(e) { 
-    console.error('[Confirmar]', e.message); 
-    res.redirect('/dashboard?error=Error+guardando+las+ediciones'); 
+  } catch (e) {
+    console.error('[Confirmar]', e.message);
+    res.redirect('/dashboard?error=Error+guardando+las+ediciones');
   }
 });
 
-app.post('/rechazar', auth, (req,res) => { delete req.session.tiquetPendent; res.redirect('/dashboard'); });
+app.post('/rechazar', auth, (req, res) => { delete req.session.tiquetPendent; res.redirect('/dashboard'); });
 
-app.get('/tiquet/:uuid', auth, async (req,res) => {
+app.get('/tiquet/:uuid', auth, async (req, res) => {
   try {
-    const uid = req.session.usuario.id;
+    const uid    = req.session.usuario.id;
     const tiquet = await getTiquetByUUID(req.params.uuid, uid);
     if (!tiquet) return res.redirect('/dashboard?error=Tiquet+no+encontrado');
-    const[productos, numUsuario] = await Promise.all([
+    const [productos, numUsuario] = await Promise.all([
       getProductosTiquet(tiquet.id, uid),
       getNumTiquet(tiquet.id, uid),
     ]);
-    res.render('tiquet_detalle.html', { ...navLocals(req), tiquet, productos, numUsuario, messages:[] });
-  } catch(e) { console.error('[Tiquet]', e.message); res.redirect('/dashboard'); }
+    res.render('tiquet_detalle.html', { ...navLocals(req), tiquet, productos, numUsuario, messages: [] });
+  } catch (e) { console.error('[Tiquet]', e.message); res.redirect('/dashboard'); }
 });
 
-app.post('/tiquet/:uuid/eliminar', auth, async (req,res) => {
-  const uid = req.session.usuario.id;
+app.post('/tiquet/:uuid/eliminar', auth, async (req, res) => {
+  const uid  = req.session.usuario.id;
   const conn = await dbPool.getConnection();
   try {
-    const [[t]] = await conn.execute('SELECT id FROM tiquets WHERE uuid=? AND id_usuario=?',[req.params.uuid, uid]);
+    const [[t]] = await conn.execute('SELECT id FROM tiquets WHERE uuid=? AND id_usuario=?', [req.params.uuid, uid]);
     if (!t) { conn.release(); return res.redirect('/dashboard?error=No+encontrado'); }
     await conn.beginTransaction();
-    await conn.execute('DELETE FROM compras WHERE id_tiquet=?', [t.id]);
-    await conn.execute('DELETE FROM tiquets_grupos WHERE tiquet_id = ?', [t.id]);
-    await conn.execute('DELETE FROM tiquets WHERE id=? AND id_usuario=?', [t.id, uid]);
+    await conn.execute('DELETE FROM compras       WHERE id_tiquet=?',      [t.id]);
+    await conn.execute('DELETE FROM tiquets_grupos WHERE tiquet_id = ?',   [t.id]);
+    await conn.execute('DELETE FROM tiquets        WHERE id=? AND id_usuario=?', [t.id, uid]);
     await conn.commit();
     res.redirect('/dashboard?success=Eliminado');
-  } catch(e) { await conn.rollback(); console.error('[Eliminar]', e.message); res.redirect('/dashboard?error=Error'); } finally { conn.release(); }
+  } catch (e) { await conn.rollback(); console.error('[Eliminar]', e.message); res.redirect('/dashboard?error=Error'); }
+  finally { conn.release(); }
 });
 
-// ── PRODUCTOS ────────────────────────────────────────────────
+// ── Productos ─────────────────────────────────────────────────
 app.get('/productos', auth, async (req, res) => {
   const uid = req.session.usuario.id;
   const { pais = '', supermercado = '' } = req.query;
@@ -963,11 +940,11 @@ app.get('/productos', auth, async (req, res) => {
     const idsEnGrupos = new Set(enGrupos.map(r => r.id_producto));
     productos.forEach(p => { p.en_grupo = idsEnGrupos.has(p.id_producto_maestro); });
 
-    const idsMaestros =[...new Set(productos.map(p => p.id_producto_maestro))];
+    const idsMaestros = [...new Set(productos.map(p => p.id_producto_maestro))];
     let verifMap = {};
     if (idsMaestros.length > 0) {
       const ph = idsMaestros.map(() => '?').join(',');
-      const[verificaciones] = await dbPool.execute(`
+      const [verificaciones] = await dbPool.execute(`
         SELECT vb.id AS id_verif, vb.id_producto, vb.codigo_barras,
                vb.votos_si, vb.votos_no, vb.estado, vu.voto AS mi_voto
         FROM verificaciones_barcode vb
@@ -978,16 +955,17 @@ app.get('/productos', auth, async (req, res) => {
     }
     const productosConVerif = productos.map(p => ({ ...p, verificacion: verifMap[p.id_producto_maestro] || null }));
 
-    const[paises]  = await dbPool.execute('SELECT DISTINCT pais FROM tiquets WHERE id_usuario=?', [uid]).catch(() => [[]]);
+    const [paises]  = await dbPool.execute('SELECT DISTINCT pais FROM tiquets WHERE id_usuario=?', [uid]).catch(() => [[]]);
     const [tiendas] = await dbPool.execute('SELECT DISTINCT supermercado FROM tiquets WHERE id_usuario=?', [uid]);
 
     res.render('todos_productos.html', {
-      ...navLocals(req), productos: productosConVerif,
-      paises: paises.map(r => r.pais).filter(Boolean),
-      tiendas: tiendas.map(r => normalizarTienda(r.supermercado)),
+      ...navLocals(req),
+      productos: productosConVerif,
+      paises:    paises.map(r => r.pais).filter(Boolean),
+      tiendas:   tiendas.map(r => normalizarTienda(r.supermercado)),
       filtro_pais: pais, filtro_supermercado: supermercado, messages: [],
     });
-  } catch(e) { console.error('[Productos]', e.message); res.redirect('/dashboard'); }
+  } catch (e) { console.error('[Productos]', e.message); res.redirect('/dashboard'); }
 });
 
 app.get('/productos/verificar', auth, adminPageOnly, async (req, res) => {
@@ -1020,7 +998,7 @@ app.get('/productos/verificar', auth, adminPageOnly, async (req, res) => {
       ...navLocals(req),
       pendientes,
       pendientes_baja: pendientesBaja,
-      pendientes_opf: pendientesOpf,
+      pendientes_opf:  pendientesOpf,
       messages: [],
     });
   } catch (e) {
@@ -1029,6 +1007,9 @@ app.get('/productos/verificar', auth, adminPageOnly, async (req, res) => {
   }
 });
 
+// ════════════════════════════════════════════════════════════
+// APIs
+// ════════════════════════════════════════════════════════════
 app.get('/api/producto/:id/precios', auth, async (req, res) => {
   try {
     const idProducto = parseInt(req.params.id, 10);
@@ -1048,16 +1029,16 @@ app.get('/api/producto/:id/precios', auth, async (req, res) => {
       const precios = rows.map(r => r.precio);
       return {
         supermercado: s,
-        min:  Math.min(...precios).toFixed(2),
-        max:  Math.max(...precios).toFixed(2),
-        avg:  (precios.reduce((a,b) => a+b, 0) / precios.length).toFixed(2),
-        ultimo: rows[rows.length-1].precio.toFixed(2),
-        ultima_fecha: rows[rows.length-1].fecha,
-        historial: rows,
+        min:          Math.min(...precios).toFixed(2),
+        max:          Math.max(...precios).toFixed(2),
+        avg:          (precios.reduce((a, b) => a + b, 0) / precios.length).toFixed(2),
+        ultimo:       rows[rows.length - 1].precio.toFixed(2),
+        ultima_fecha: rows[rows.length - 1].fecha,
+        historial:    rows,
       };
     }).sort((a, b) => parseFloat(a.avg) - parseFloat(b.avg));
     res.json({ producto: maestro, stats, total_registros: historial.length });
-  } catch(e) { console.error('[Precios]', e.message); res.status(500).json({ error: 'Error interno' }); }
+  } catch (e) { console.error('[Precios]', e.message); res.status(500).json({ error: 'Error interno' }); }
 });
 
 app.get('/api/maestros/buscar', auth, async (req, res) => {
@@ -1068,9 +1049,10 @@ app.get('/api/maestros/buscar', auth, async (req, res) => {
       [q, q]
     );
     res.json(rows);
-  } catch(e) { res.status(500).json([]); }
+  } catch (e) { res.status(500).json([]); }
 });
 
+// ── Open Food Facts ───────────────────────────────────────────
 function mapOffProducts(data) {
   const products = Array.isArray(data?.products) ? data.products : [];
   return products.map(p => {
@@ -1078,8 +1060,8 @@ function mapOffProducts(data) {
     if (!nombre) return null;
     return {
       nombre,
-      marca: (p.brands || 'Generico').split(',')[0].trim(),
-      foto_url: p.image_front_small_url || p.image_small_url || '',
+      marca:       (p.brands || 'Generico').split(',')[0].trim(),
+      foto_url:    p.image_front_small_url || p.image_small_url || '',
       codigo_barras: p.code || null,
       fuente: 'OFF',
     };
@@ -1088,70 +1070,40 @@ function mapOffProducts(data) {
 
 function offRequestConfig(q, timeoutMs) {
   return {
-    params: {
-      search_terms: q,
-      search_simple: 1,
-      action: 'process',
-      json: 1,
-      page_size: 15,
-      lc: 'es',
-      cc: 'es',
-    },
+    params:  { search_terms: q, search_simple: 1, action: 'process', json: 1, page_size: 15, lc: 'es', cc: 'es' },
     timeout: timeoutMs,
-    headers: {
-      'User-Agent': 'Wget/1.21.3',
-      Accept: '*/*',
-    },
+    headers: { 'User-Agent': 'Wget/1.21.3', Accept: '*/*' },
   };
 }
 
 function parseOffResults(data) {
   if (typeof data === 'string') {
     const head = data.slice(0, 300).toLowerCase();
-    if (head.includes('<!doctype html') || head.includes('<html')) {
-      throw new Error('OFF respondió HTML temporal');
-    }
+    if (head.includes('<!doctype html') || head.includes('<html')) throw new Error('OFF respondió HTML temporal');
     throw new Error('OFF payload no-JSON');
   }
-  if (!data || typeof data !== 'object' || !Array.isArray(data.products)) {
-    throw new Error('OFF payload inválido');
-  }
+  if (!data || typeof data !== 'object' || !Array.isArray(data.products)) throw new Error('OFF payload inválido');
   return mapOffProducts(data);
 }
 
-function normalizarEan(valor) {
-  return String(valor || '').replace(/\D/g, '');
-}
-
-function sanitizarTexto(valor, maxLen) {
-  return String(valor || '').trim().replace(/\s+/g, ' ').slice(0, maxLen);
-}
-
-function opfUrl(pathname) {
-  const base = OPF_BASE_URL.replace(/\/+$/, '');
-  const path = String(pathname || '').replace(/^\/+/, '');
-  return `${base}/${path}`;
-}
-
+function normalizarEan(valor)             { return String(valor || '').replace(/\D/g, ''); }
+function sanitizarTexto(valor, maxLen)    { return String(valor || '').trim().replace(/\s+/g, ' ').slice(0, maxLen); }
+function opfUrl(pathname)                 { return `${OPF_BASE_URL.replace(/\/+$/, '')}/${String(pathname || '').replace(/^\/+/, '')}`; }
 function buildOpfHeaders() {
   const headers = { 'User-Agent': OPF_USER_AGENT, Accept: 'application/json' };
   if (OPENFACTS_API_KEY) headers['X-Api-Key'] = OPENFACTS_API_KEY;
   return headers;
 }
-
-function buildOpfLookupUrl(ean) {
-  const basePath = OPF_LOOKUP_PATH.replace(/\/+$/, '');
-  return opfUrl(`${basePath}/${ean}.json`);
-}
+function buildOpfLookupUrl(ean) { return opfUrl(`${OPF_LOOKUP_PATH.replace(/\/+$/, '')}/${ean}.json`); }
 
 async function persistOpfFile(file) {
   if (!file) return null;
-  const ext = path.extname(file.originalname || '').toLowerCase();
-  const allowedExt = ['.jpg', '.jpeg', '.png', '.webp'];
-  const safeExt = allowedExt.includes(ext) ? ext : (file.mimetype === 'image/png' ? '.png' : '.jpg');
-  const filename = `opf_${Date.now()}_${crypto.randomUUID()}${safeExt}`;
+  const ext     = path.extname(file.originalname || '').toLowerCase();
+  const allowed = ['.jpg', '.jpeg', '.png', '.webp'];
+  const safeExt = allowed.includes(ext) ? ext : (file.mimetype === 'image/png' ? '.png' : '.jpg');
+  const filename     = `opf_${Date.now()}_${crypto.randomUUID()}${safeExt}`;
   const relativePath = path.join('private', 'opf_uploads', filename);
-  const fullPath = path.join(__dirname, relativePath);
+  const fullPath     = path.join(__dirname, relativePath);
   await fs.promises.writeFile(fullPath, file.buffer);
   return relativePath.replace(/\\/g, '/');
 }
@@ -1167,7 +1119,6 @@ async function enviarOpfProducto({ ean, nombre, marca }) {
   form.append('user_id', OPF_USER_ID);
   form.append('password', OPF_PASSWORD);
   form.append('json', '1');
-
   const headers = { ...form.getHeaders(), ...buildOpfHeaders() };
   const r = await axios.post(opfUrl(OPF_CREATE_PATH), form, { headers, timeout: OPF_TIMEOUT_MS });
   return r.data;
@@ -1182,47 +1133,32 @@ async function enviarOpfImagen({ ean, file }) {
   form.append('user_id', OPF_USER_ID);
   form.append('password', OPF_PASSWORD);
   form.append('json', '1');
-
   const headers = { ...form.getHeaders(), ...buildOpfHeaders() };
   const r = await axios.post(opfUrl(OPF_IMAGE_PATH), form, { headers, timeout: OPF_TIMEOUT_MS });
   return r.data;
 }
 
 async function upsertProductoMaestroFromOpf({ ean, nombre, marca, foto_url }) {
-  const eanClean = normalizarEan(ean);
+  const eanClean    = normalizarEan(ean);
   const nombreClean = sanitizarTexto(nombre, 200).toUpperCase();
-  const marcaClean = sanitizarTexto(marca, 100).toUpperCase() || 'GENERICA';
-  const fotoClean = foto_url ? String(foto_url).slice(0, 500) : null;
-
+  const marcaClean  = sanitizarTexto(marca,  100).toUpperCase() || 'GENERICA';
+  const fotoClean   = foto_url ? String(foto_url).slice(0, 500) : null;
   if (!eanClean || !nombreClean) return null;
 
   const [[existing]] = await dbPool.execute(
-    'SELECT id, nombre, marca, foto_url FROM productos_maestros WHERE codigo_barras = ? LIMIT 1',
-    [eanClean]
+    'SELECT id, nombre, marca, foto_url FROM productos_maestros WHERE codigo_barras = ? LIMIT 1', [eanClean]
   );
-
   if (existing) {
-    const updates = [];
-    const params = [];
-    if (!existing.nombre && nombreClean) {
-      updates.push('nombre = ?');
-      params.push(nombreClean);
-    }
-    if (!existing.marca && marcaClean) {
-      updates.push('marca = ?');
-      params.push(marcaClean);
-    }
-    if (!existing.foto_url && fotoClean) {
-      updates.push('foto_url = ?');
-      params.push(fotoClean);
-    }
+    const updates = []; const params = [];
+    if (!existing.nombre  && nombreClean) { updates.push('nombre = ?');   params.push(nombreClean); }
+    if (!existing.marca   && marcaClean)  { updates.push('marca = ?');    params.push(marcaClean); }
+    if (!existing.foto_url && fotoClean)  { updates.push('foto_url = ?'); params.push(fotoClean); }
     if (updates.length > 0) {
       params.push(existing.id);
       await dbPool.execute(`UPDATE productos_maestros SET ${updates.join(', ')} WHERE id = ?`, params);
     }
     return existing.id;
   }
-
   const [ins] = await dbPool.execute(
     'INSERT INTO productos_maestros (nombre, marca, categoria, foto_url, codigo_barras) VALUES (?,?,?,?,?)',
     [nombreClean, marcaClean, 'Alimentacion', fotoClean, eanClean]
@@ -1235,11 +1171,10 @@ app.get('/api/proxy/off', auth, async (req, res) => {
   try {
     const q = (req.query.q || '').trim();
     if (!q) return res.json([]);
-
     const candidates = [
-      { name: 'direct-org', url: OFF_SEARCH_URL, timeout: timeoutMs },
-      { name: 'direct-net', url: OFF_SECONDARY_URL, timeout: timeoutMs },
-      { name: 'nginx-fallback', url: OFF_FALLBACK_URL, timeout: timeoutMs + 2000 },
+      { name: 'direct-org',     url: OFF_SEARCH_URL,    timeout: timeoutMs },
+      { name: 'direct-net',     url: OFF_SECONDARY_URL, timeout: timeoutMs },
+      { name: 'nginx-fallback', url: OFF_FALLBACK_URL,  timeout: timeoutMs + 2000 },
     ].filter((item, index, arr) => arr.findIndex(x => x.url === item.url) === index);
 
     let lastReason = 'desconocido';
@@ -1252,26 +1187,21 @@ app.get('/api/proxy/off', auth, async (req, res) => {
         console.warn(`[OFF] ${source.name} falló (${lastReason})`);
       }
     }
-
     console.error(`[OFF] Todos los orígenes fallaron (${lastReason})`);
     return res.json([]);
-  } catch(e) {
-    const reason = e.response?.status || e.code || e.message;
-    console.error(`[OFF] Fallback agotado: ${reason}`);
+  } catch (e) {
+    console.error(`[OFF] Fallback agotado: ${e.response?.status || e.code || e.message}`);
     return res.json([]);
   }
 });
 
-// ── OPF (Open Products Facts) ───────────────────────────────
 app.post('/api/opf/import', auth, async (req, res) => {
-  const ean = normalizarEan(req.body.ean);
-  const nombre = sanitizarTexto(req.body.nombre, 200);
-  const marca = sanitizarTexto(req.body.marca, 100);
+  const ean     = normalizarEan(req.body.ean);
+  const nombre  = sanitizarTexto(req.body.nombre, 200);
+  const marca   = sanitizarTexto(req.body.marca,  100);
   const foto_url = req.body.image_url || req.body.foto_url || '';
-
   if (!/^\d{8,14}$/.test(ean)) return res.status(400).json({ error: 'EAN inválido' });
   if (!nombre) return res.status(400).json({ error: 'Nombre obligatorio' });
-
   try {
     const id = await upsertProductoMaestroFromOpf({ ean, nombre, marca, foto_url });
     return res.json({ success: true, id });
@@ -1284,26 +1214,22 @@ app.post('/api/opf/import', auth, async (req, res) => {
 app.get('/api/opf/lookup/:ean', auth, async (req, res) => {
   const ean = normalizarEan(req.params.ean);
   if (!/^\d{8,14}$/.test(ean)) return res.status(400).json({ error: 'EAN inválido' });
-
   try {
-    const r = await axios.get(buildOpfLookupUrl(ean), { headers: buildOpfHeaders(), timeout: OPF_TIMEOUT_MS });
-    const data = r.data || {};
+    const r       = await axios.get(buildOpfLookupUrl(ean), { headers: buildOpfHeaders(), timeout: OPF_TIMEOUT_MS });
+    const data    = r.data || {};
     const product = data.product || null;
-    const found = data.status === 1 || data.status === '1' || !!product;
-
+    const found   = data.status === 1 || data.status === '1' || !!product;
     if (!found) return res.json({ found: false });
-
     res.json({
       found: true,
       product: {
         product_name: product.product_name || product.product_name_es || '',
-        brands: product.brands || '',
-        image_url: product.image_url || product.image_front_url || '',
+        brands:       product.brands || '',
+        image_url:    product.image_url || product.image_front_url || '',
       },
     });
   } catch (e) {
-    const reason = e.response?.status || e.code || e.message;
-    console.warn(`[OPF] Lookup falló (${reason})`);
+    console.warn(`[OPF] Lookup falló (${e.response?.status || e.code || e.message})`);
     res.status(502).json({ error: 'No se pudo consultar OPF' });
   }
 });
@@ -1313,43 +1239,33 @@ app.post('/api/opf/create', auth, (req, res) => {
     if (err) return res.status(400).json({ error: err.message || 'Error de archivo' });
 
     const status = String(req.body.status || 'draft').toLowerCase();
-    const ean = normalizarEan(req.body.ean);
+    const ean    = normalizarEan(req.body.ean);
     const nombre = sanitizarTexto(req.body.nombre, 200);
-    const marca = sanitizarTexto(req.body.marca, 100);
-    const file = req.file || null;
+    const marca  = sanitizarTexto(req.body.marca,  100);
+    const file   = req.file || null;
 
-    if (!/^\d{8,14}$/.test(ean)) return res.status(400).json({ error: 'EAN inválido' });
-    if (!nombre || !marca) return res.status(400).json({ error: 'Nombre y marca son obligatorios' });
-    if (status !== 'draft' && status !== 'ready') return res.status(400).json({ error: 'Estado inválido' });
+    if (!/^\d{8,14}$/.test(ean))    return res.status(400).json({ error: 'EAN inválido' });
+    if (!nombre || !marca)          return res.status(400).json({ error: 'Nombre y marca son obligatorios' });
+    if (!['draft','ready'].includes(status)) return res.status(400).json({ error: 'Estado inválido' });
     if (status === 'ready' && !file) return res.status(400).json({ error: 'Foto obligatoria para enviar' });
 
     const esAdmin = !!req.session.usuario?.es_admin;
     let estado = status === 'ready' ? 'sent' : 'draft';
     let opfResponse = null;
-    let errorMsg = null;
-    let fotoPath = null;
+    let errorMsg    = null;
+    let fotoPath    = null;
     let localProductId = null;
 
     if (status === 'ready' && !esAdmin) {
       try {
         if (file) fotoPath = await persistOpfFile(file);
         localProductId = await upsertProductoMaestroFromOpf({ ean, nombre, marca, foto_url: null });
-      } catch (e) {
-        console.warn('[OPF] Pendiente local fallido:', e.message);
-      }
-
+      } catch (e) { console.warn('[OPF] Pendiente local fallido:', e.message); }
       const [pend] = await dbPool.execute(
-        `INSERT INTO opf_pendientes (id_usuario, ean, nombre, marca, foto_path)
-         VALUES (?,?,?,?,?)`,
+        `INSERT INTO opf_pendientes (id_usuario, ean, nombre, marca, foto_path) VALUES (?,?,?,?,?)`,
         [req.session.usuario.id, ean, nombre, marca, fotoPath]
       );
-
-      return res.json({
-        success: true,
-        pending: true,
-        pending_id: pend.insertId,
-        local_product_id: localProductId,
-      });
+      return res.json({ success: true, pending: true, pending_id: pend.insertId, local_product_id: localProductId });
     }
 
     try {
@@ -1360,197 +1276,125 @@ app.post('/api/opf/create', auth, (req, res) => {
         opfResponse = { producto: productoRes, imagen: imagenRes };
       }
     } catch (e) {
-      estado = 'failed';
-      errorMsg = e.message || 'Error enviando a OPF';
+      estado    = 'failed';
+      errorMsg  = e.message || 'Error enviando a OPF';
       if (file) fotoPath = await persistOpfFile(file);
     }
 
     if (status === 'draft' && file) fotoPath = await persistOpfFile(file);
 
-    try {
-      localProductId = await upsertProductoMaestroFromOpf({ ean, nombre, marca, foto_url: null });
-    } catch (e) {
-      console.warn('[OPF] Import local fallido:', e.message);
-    }
+    try { localProductId = await upsertProductoMaestroFromOpf({ ean, nombre, marca, foto_url: null }); }
+    catch (e) { console.warn('[OPF] Import local fallido:', e.message); }
 
     const [result] = await dbPool.execute(
-      `INSERT INTO opf_drafts (id_usuario, ean, nombre, marca, foto_path, estado, opf_response, error_msg)
-       VALUES (?,?,?,?,?,?,?,?)`,
-      [
-        req.session.usuario.id,
-        ean,
-        nombre,
-        marca,
-        fotoPath,
-        estado,
+      `INSERT INTO opf_drafts (id_usuario, ean, nombre, marca, foto_path, estado, opf_response, error_msg) VALUES (?,?,?,?,?,?,?,?)`,
+      [req.session.usuario.id, ean, nombre, marca, fotoPath, estado,
         opfResponse ? JSON.stringify(opfResponse).slice(0, 4000) : null,
-        errorMsg ? errorMsg.slice(0, 500) : null,
-      ]
+        errorMsg ? errorMsg.slice(0, 500) : null]
     );
 
-    if (estado === 'failed') {
-      return res.status(502).json({
-        error: errorMsg || 'Error enviando a OPF',
-        draft_id: result.insertId,
-        local_product_id: localProductId,
-      });
-    }
-
+    if (estado === 'failed') return res.status(502).json({ error: errorMsg || 'Error enviando a OPF', draft_id: result.insertId, local_product_id: localProductId });
     res.json({ success: true, draft_id: result.insertId, sent: estado === 'sent', local_product_id: localProductId });
   });
 });
 
-// --- 7. VINCULACIÓN INTELIGENTE: Mueve compras, borra basura y añade redirecciones ---
+// ── Compras ───────────────────────────────────────────────────
 app.post('/api/compras/vincular', auth, async (req, res) => {
   const { id_compra, id_producto_maestro, producto_externo } = req.body;
-  const uid = req.session.usuario.id;
+  const uid  = req.session.usuario.id;
   const conn = await dbPool.getConnection();
   try {
     await conn.beginTransaction();
-
-    // 1. Averiguar quién es el producto "basura" actual
     const [compraRows] = await conn.execute(
-      `SELECT id_producto, nombre_original FROM compras WHERE id = ? AND id_usuario = ?`,
-      [id_compra, uid]
+      `SELECT id_producto, nombre_original FROM compras WHERE id = ? AND id_usuario = ?`, [id_compra, uid]
     );
-    if (compraRows.length === 0) {
-      await conn.rollback();
-      return res.status(404).json({ error: 'Compra no encontrada' });
-    }
+    if (compraRows.length === 0) { await conn.rollback(); return res.status(404).json({ error: 'Compra no encontrada' }); }
 
-    const idMaestroBasura = compraRows[0].id_producto;
-    const nombreEnTiquet = compraRows[0].nombre_original;
-
-    // 2. Buscar o Crear el Maestro Oficial (de OFF o de la BDD local)
-    let idMaestroOficial = id_producto_maestro;
-    let barcode = producto_externo ? producto_externo.codigo_barras : null;
+    const idMaestroBasura  = compraRows[0].id_producto;
+    const nombreEnTiquet   = compraRows[0].nombre_original;
+    let idMaestroOficial   = id_producto_maestro;
+    let barcode            = producto_externo ? producto_externo.codigo_barras : null;
 
     if (producto_externo) {
       const [existe] = await conn.execute('SELECT id FROM productos_maestros WHERE codigo_barras = ?', [barcode]);
-      if (existe.length > 0) {
-        idMaestroOficial = existe[0].id;
-      } else {
+      if (existe.length > 0) { idMaestroOficial = existe[0].id; }
+      else {
         const [ins] = await conn.execute(
-          'INSERT INTO productos_maestros (nombre, marca, categoria, foto_url, codigo_barras) VALUES (?,?,?,?,?)',[producto_externo.nombre.toUpperCase(), (producto_externo.marca || 'Genérica').toUpperCase(), 'Alimentacion', producto_externo.foto_url, barcode]
+          'INSERT INTO productos_maestros (nombre, marca, categoria, foto_url, codigo_barras) VALUES (?,?,?,?,?)',
+          [producto_externo.nombre.toUpperCase(), (producto_externo.marca || 'Genérica').toUpperCase(), 'Alimentacion', producto_externo.foto_url, barcode]
         );
         idMaestroOficial = ins.insertId;
       }
-    } else if (!idMaestroOficial) {
-      throw new Error("Se requiere un producto oficial para vincular.");
-    }
+    } else if (!idMaestroOficial) { throw new Error("Se requiere un producto oficial para vincular."); }
 
-    // 3. Alimentar el Diccionario (El sistema "aprende")
     if (nombreEnTiquet) {
       await conn.execute(`
-        INSERT INTO diccionario_productos (nombre_en_tiquet, id_producto_maestro, usos) 
+        INSERT INTO diccionario_productos (nombre_en_tiquet, id_producto_maestro, usos)
         VALUES (?, ?, 1)
         ON DUPLICATE KEY UPDATE id_producto_maestro = ?, usos = usos + 1, actualizado_en = NOW()
-      `,[nombreEnTiquet, idMaestroOficial, idMaestroOficial]);
+      `, [nombreEnTiquet, idMaestroOficial, idMaestroOficial]);
     }
 
-    // 4. Mover historial, mover compras, y eliminar el "basura"
     if (idMaestroBasura && idMaestroBasura !== idMaestroOficial) {
-      // Mover compras de todos los usuarios para este mismo producto
       await conn.execute(`UPDATE compras SET id_producto = ?, curado = 1 WHERE id_producto = ?`, [idMaestroOficial, idMaestroBasura]);
-      
-      // Mover historial de precios
-      await conn.execute(`UPDATE historial_precios SET id_producto = ? WHERE id_producto = ?`,[idMaestroOficial, idMaestroBasura]);
-      
-      // Intentar eliminar el producto temporal que ya no tiene compras (limpieza de basura)
-      try {
-          await conn.execute(`DELETE FROM productos_maestros WHERE id = ?`, [idMaestroBasura]);
-      } catch(err) {
-          console.warn(`No se pudo borrar el maestro temporal ${idMaestroBasura}.`);
-      }
+      await conn.execute(`UPDATE historial_precios SET id_producto = ? WHERE id_producto = ?`, [idMaestroOficial, idMaestroBasura]);
+      try { await conn.execute(`DELETE FROM productos_maestros WHERE id = ?`, [idMaestroBasura]); } catch {}
     } else {
-      // Si por alguna razón no hay producto basura, actualizamos solo esta compra
       await conn.execute('UPDATE compras SET id_producto = ?, curado = 1 WHERE id = ?', [idMaestroOficial, id_compra]);
     }
 
-    // 5. Crear la verificación de código de barras (Votos Colaborativos)
     if (barcode) {
       const [verifRows] = await conn.execute(`SELECT id FROM verificaciones_barcode WHERE id_producto = ? AND codigo_barras = ?`, [idMaestroOficial, barcode]);
       let verifId;
       if (verifRows.length === 0) {
-          const[insertVerif] = await conn.execute(`INSERT INTO verificaciones_barcode (id_producto, codigo_barras, votos_si) VALUES (?, ?, 0)`, [idMaestroOficial, barcode]);
-          verifId = insertVerif.insertId;
-      } else {
-          verifId = verifRows[0].id;
-      }
-      
-      const [votoResult] = await conn.execute(`INSERT IGNORE INTO votos_usuario (id_usuario, id_verificacion, voto) VALUES (?, ?, 'si')`,[uid, verifId]);
-      
+        const [insertVerif] = await conn.execute(`INSERT INTO verificaciones_barcode (id_producto, codigo_barras, votos_si) VALUES (?, ?, 0)`, [idMaestroOficial, barcode]);
+        verifId = insertVerif.insertId;
+      } else { verifId = verifRows[0].id; }
+      const [votoResult] = await conn.execute(`INSERT IGNORE INTO votos_usuario (id_usuario, id_verificacion, voto) VALUES (?, ?, 'si')`, [uid, verifId]);
       if (votoResult.affectedRows > 0) {
-          await conn.execute(`UPDATE verificaciones_barcode SET votos_si = votos_si + 1 WHERE id = ?`, [verifId]);
-          await verificarConsenso(conn, verifId);
+        await conn.execute(`UPDATE verificaciones_barcode SET votos_si = votos_si + 1 WHERE id = ?`, [verifId]);
+        await verificarConsenso(conn, verifId);
       }
     }
 
     await conn.commit();
     res.json({ success: true, message: 'Producto vinculado y base de datos optimizada' });
-  } catch(e) { 
-    await conn.rollback(); 
-    console.error('[Vincular]', e.message); 
-    res.status(500).json({ error: e.message }); 
-  } finally { 
-    conn.release(); 
-  }
+  } catch (e) { await conn.rollback(); console.error('[Vincular]', e.message); res.status(500).json({ error: e.message }); }
+  finally { conn.release(); }
 });
 
 app.post('/api/compras/:idCompra/desvincular', auth, async (req, res) => {
-  const uid = req.session.usuario.id;
+  const uid      = req.session.usuario.id;
   const idCompra = parseInt(req.params.idCompra, 10);
   if (!Number.isFinite(idCompra)) return res.status(400).json({ error: 'ID inválido' });
 
   const conn = await dbPool.getConnection();
   try {
     await conn.beginTransaction();
-
     const [[compra]] = await conn.execute(
-      `SELECT id, id_usuario, id_producto, nombre_original
-       FROM compras WHERE id = ? AND id_usuario = ?`,
-      [idCompra, uid]
+      `SELECT id, id_usuario, id_producto, nombre_original FROM compras WHERE id = ? AND id_usuario = ?`, [idCompra, uid]
     );
-
-    if (!compra) {
-      await conn.rollback();
-      return res.status(404).json({ error: 'Compra no encontrada' });
-    }
+    if (!compra) { await conn.rollback(); return res.status(404).json({ error: 'Compra no encontrada' }); }
 
     const nombreBase = (compra.nombre_original || 'Producto sin vincular').trim().toUpperCase();
-    const [ins] = await conn.execute(
-      'INSERT INTO productos_maestros (nombre, marca, categoria) VALUES (?,?,?)',
-      [nombreBase.slice(0, 200), 'Generica', 'Otros']
-    );
-
-    await conn.execute(
-      'UPDATE compras SET id_producto = ?, curado = 0 WHERE id = ?',
-      [ins.insertId, idCompra]
-    );
+    const [ins] = await conn.execute('INSERT INTO productos_maestros (nombre, marca, categoria) VALUES (?,?,?)', [nombreBase.slice(0, 200), 'Generica', 'Otros']);
+    await conn.execute('UPDATE compras SET id_producto = ?, curado = 0 WHERE id = ?', [ins.insertId, idCompra]);
 
     if (compra.id_producto) {
       await conn.execute(
-        `INSERT INTO verificaciones_producto (id_producto, id_usuario, motivo)
-         VALUES (?,?,?)`,
+        `INSERT INTO verificaciones_producto (id_producto, id_usuario, motivo) VALUES (?,?,?)`,
         [compra.id_producto, uid, 'Desvinculado por usuario']
       );
     }
-
     await conn.commit();
     res.json({ success: true, id_producto: ins.insertId });
-  } catch (e) {
-    await conn.rollback();
-    console.error('[Desvincular]', e.message);
-    res.status(500).json({ error: 'Error desvinculando compra' });
-  } finally {
-    conn.release();
-  }
+  } catch (e) { await conn.rollback(); console.error('[Desvincular]', e.message); res.status(500).json({ error: 'Error desvinculando compra' }); }
+  finally { conn.release(); }
 });
 
-// --- 8. VOTAR VERIFICACIONES DE CÓDIGO DE BARRAS ---
 app.post('/api/verificaciones/votar', auth, async (req, res) => {
   const { id_verificacion, voto } = req.body;
-  const uid = req.session.usuario.id;
+  const uid  = req.session.usuario.id;
   if (!['si', 'no'].includes(voto)) return res.status(400).json({ error: 'Voto inválido' });
   const conn = await dbPool.getConnection();
   try {
@@ -1559,90 +1403,64 @@ app.post('/api/verificaciones/votar', auth, async (req, res) => {
     if (!verif) { await conn.rollback(); return res.status(404).json({ error: 'No encontrada o ya cerrada' }); }
     const [[yaVoto]] = await conn.execute('SELECT id FROM votos_usuario WHERE id_usuario = ? AND id_verificacion = ?', [uid, id_verificacion]);
     if (yaVoto) { await conn.rollback(); return res.status(409).json({ error: 'Ya has votado' }); }
-    await conn.execute('INSERT INTO votos_usuario (id_usuario, id_verificacion, voto) VALUES (?,?,?)',[uid, id_verificacion, voto]);
+    await conn.execute('INSERT INTO votos_usuario (id_usuario, id_verificacion, voto) VALUES (?,?,?)', [uid, id_verificacion, voto]);
     const campo = voto === 'si' ? 'votos_si' : 'votos_no';
-    await conn.execute(`UPDATE verificaciones_barcode SET ${campo} = ${campo} + 1 WHERE id = ?`,[id_verificacion]);
+    await conn.execute(`UPDATE verificaciones_barcode SET ${campo} = ${campo} + 1 WHERE id = ?`, [id_verificacion]);
     await verificarConsenso(conn, id_verificacion);
     await conn.commit();
-    const [[updated]] = await dbPool.execute('SELECT votos_si, votos_no, estado FROM verificaciones_barcode WHERE id = ?',[id_verificacion]);
+    const [[updated]] = await dbPool.execute('SELECT votos_si, votos_no, estado FROM verificaciones_barcode WHERE id = ?', [id_verificacion]);
     res.json({ success: true, ...updated });
-  } catch(e) { await conn.rollback(); console.error('[Votar]', e.message); res.status(500).json({ error: e.message }); } finally { conn.release(); }
+  } catch (e) { await conn.rollback(); console.error('[Votar]', e.message); res.status(500).json({ error: e.message }); }
+  finally { conn.release(); }
 });
 
 app.post('/api/verificaciones/admin', auth, adminOnly, async (req, res) => {
   const idVerificacion = parseInt(req.body.id_verificacion, 10);
-  const accion = String(req.body.accion || '').toLowerCase();
-  if (!Number.isFinite(idVerificacion)) return res.status(400).json({ error: 'ID inválido' });
-  if (!['aprobar', 'rechazar'].includes(accion)) return res.status(400).json({ error: 'Acción inválida' });
+  const accion         = String(req.body.accion || '').toLowerCase();
+  if (!Number.isFinite(idVerificacion))            return res.status(400).json({ error: 'ID inválido' });
+  if (!['aprobar','rechazar'].includes(accion))    return res.status(400).json({ error: 'Acción inválida' });
 
   const conn = await dbPool.getConnection();
   try {
     await conn.beginTransaction();
-
     const [[verif]] = await conn.execute(
-      'SELECT id, id_producto, codigo_barras, estado FROM verificaciones_barcode WHERE id = ? FOR UPDATE',
-      [idVerificacion]
+      'SELECT id, id_producto, codigo_barras, estado FROM verificaciones_barcode WHERE id = ? FOR UPDATE', [idVerificacion]
     );
-
-    if (!verif || verif.estado !== 'pendiente') {
-      await conn.rollback();
-      return res.status(404).json({ error: 'Verificación no encontrada o ya cerrada' });
-    }
+    if (!verif || verif.estado !== 'pendiente') { await conn.rollback(); return res.status(404).json({ error: 'Verificación no encontrada o ya cerrada' }); }
 
     if (accion === 'aprobar') {
       await conn.execute("UPDATE verificaciones_barcode SET estado = 'verificado' WHERE id = ?", [idVerificacion]);
-      await conn.execute(
-        'UPDATE productos_maestros SET codigo_barras = ? WHERE id = ?',
-        [verif.codigo_barras, verif.id_producto]
-      );
+      await conn.execute('UPDATE productos_maestros SET codigo_barras = ? WHERE id = ?', [verif.codigo_barras, verif.id_producto]);
     } else {
       await conn.execute("UPDATE verificaciones_barcode SET estado = 'rechazado' WHERE id = ?", [idVerificacion]);
-      await conn.execute(
-        'UPDATE productos_maestros SET codigo_barras = NULL WHERE id = ? AND codigo_barras = ?',
-        [verif.id_producto, verif.codigo_barras]
-      );
+      await conn.execute('UPDATE productos_maestros SET codigo_barras = NULL WHERE id = ? AND codigo_barras = ?', [verif.id_producto, verif.codigo_barras]);
     }
-
     await conn.commit();
     res.json({ success: true, estado: accion === 'aprobar' ? 'verificado' : 'rechazado' });
-  } catch (e) {
-    await conn.rollback();
-    console.error('[VerificacionAdmin]', e.message);
-    res.status(500).json({ error: 'Error actualizando verificación' });
-  } finally {
-    conn.release();
-  }
+  } catch (e) { await conn.rollback(); console.error('[VerificacionAdmin]', e.message); res.status(500).json({ error: 'Error actualizando verificación' }); }
+  finally { conn.release(); }
 });
 
 app.post('/api/verificaciones/admin/crear', auth, adminOnly, async (req, res) => {
   const idProducto = parseInt(req.body.id_producto, 10);
-  const codigo = normalizarEan(req.body.codigo_barras);
-  if (!Number.isFinite(idProducto)) return res.status(400).json({ error: 'ID inválido' });
-  if (!/^[0-9]{8,14}$/.test(codigo)) return res.status(400).json({ error: 'EAN inválido' });
+  const codigo     = normalizarEan(req.body.codigo_barras);
+  if (!Number.isFinite(idProducto))      return res.status(400).json({ error: 'ID inválido' });
+  if (!/^[0-9]{8,14}$/.test(codigo))    return res.status(400).json({ error: 'EAN inválido' });
 
   const conn = await dbPool.getConnection();
   try {
     await conn.beginTransaction();
     const [[prod]] = await conn.execute('SELECT id FROM productos_maestros WHERE id = ? FOR UPDATE', [idProducto]);
     if (!prod) { await conn.rollback(); return res.status(404).json({ error: 'Producto no encontrado' }); }
-
     await conn.execute('UPDATE productos_maestros SET codigo_barras = ? WHERE id = ?', [codigo, idProducto]);
     await conn.execute(
-      `INSERT INTO verificaciones_barcode (id_producto, codigo_barras, votos_si)
-       VALUES (?,?,0)
-       ON DUPLICATE KEY UPDATE estado = 'pendiente'`,
+      `INSERT INTO verificaciones_barcode (id_producto, codigo_barras, votos_si) VALUES (?,?,0) ON DUPLICATE KEY UPDATE estado = 'pendiente'`,
       [idProducto, codigo]
     );
-
     await conn.commit();
     res.json({ success: true });
-  } catch (e) {
-    await conn.rollback();
-    console.error('[VerificacionAdminCrear]', e.message);
-    res.status(500).json({ error: 'Error creando referencia' });
-  } finally {
-    conn.release();
-  }
+  } catch (e) { await conn.rollback(); console.error('[VerificacionAdminCrear]', e.message); res.status(500).json({ error: 'Error creando referencia' }); }
+  finally { conn.release(); }
 });
 
 app.post('/api/opf/pending/approve', auth, adminOnly, async (req, res) => {
@@ -1652,92 +1470,56 @@ app.post('/api/opf/pending/approve', auth, adminOnly, async (req, res) => {
   const conn = await dbPool.getConnection();
   try {
     await conn.beginTransaction();
+    const [[pend]] = await conn.execute(`SELECT * FROM opf_pendientes WHERE id = ? FOR UPDATE`, [idPendiente]);
+    if (!pend || pend.estado !== 'pendiente') { await conn.rollback(); return res.status(404).json({ error: 'Pendiente no encontrado o ya procesado' }); }
 
-    const [[pend]] = await conn.execute(
-      `SELECT * FROM opf_pendientes WHERE id = ? FOR UPDATE`,
-      [idPendiente]
-    );
-
-    if (!pend || pend.estado !== 'pendiente') {
-      await conn.rollback();
-      return res.status(404).json({ error: 'Pendiente no encontrado o ya procesado' });
-    }
-
-    let opfResponse = null;
-    let errorMsg = null;
-
+    let opfResponse = null; let errorMsg = null;
     try {
       const productoRes = await enviarOpfProducto({ ean: pend.ean, nombre: pend.nombre, marca: pend.marca });
       let imagenRes = null;
       if (pend.foto_path) {
         const fullPath = path.join(__dirname, pend.foto_path);
-        const buffer = await fs.promises.readFile(fullPath);
-        const ext = path.extname(pend.foto_path).toLowerCase();
+        const buffer   = await fs.promises.readFile(fullPath);
+        const ext      = path.extname(pend.foto_path).toLowerCase();
         const mimetype = ext === '.png' ? 'image/png' : (ext === '.webp' ? 'image/webp' : 'image/jpeg');
         imagenRes = await enviarOpfImagen({ ean: pend.ean, file: { buffer, originalname: path.basename(pend.foto_path), mimetype } });
       }
       opfResponse = { producto: productoRes, imagen: imagenRes };
-      await conn.execute(
-        "UPDATE opf_pendientes SET estado = 'enviado', opf_response = ?, error_msg = NULL WHERE id = ?",
-        [JSON.stringify(opfResponse).slice(0, 4000), idPendiente]
-      );
+      await conn.execute("UPDATE opf_pendientes SET estado = 'enviado', opf_response = ?, error_msg = NULL WHERE id = ?", [JSON.stringify(opfResponse).slice(0, 4000), idPendiente]);
     } catch (e) {
       errorMsg = e.message || 'Error enviando a OPF';
-      await conn.execute(
-        "UPDATE opf_pendientes SET estado = 'fallido', error_msg = ? WHERE id = ?",
-        [errorMsg.slice(0, 500), idPendiente]
-      );
+      await conn.execute("UPDATE opf_pendientes SET estado = 'fallido', error_msg = ? WHERE id = ?", [errorMsg.slice(0, 500), idPendiente]);
     }
-
     await conn.commit();
     if (errorMsg) return res.status(502).json({ error: errorMsg });
     res.json({ success: true });
-  } catch (e) {
-    await conn.rollback();
-    console.error('[OpfApprove]', e.message);
-    res.status(500).json({ error: 'Error aprobando pendiente' });
-  } finally {
-    conn.release();
-  }
+  } catch (e) { await conn.rollback(); console.error('[OpfApprove]', e.message); res.status(500).json({ error: 'Error aprobando pendiente' }); }
+  finally { conn.release(); }
 });
 
 app.post('/api/opf/pending/reject', auth, adminOnly, async (req, res) => {
   const idPendiente = parseInt(req.body.id_pendiente, 10);
   if (!Number.isFinite(idPendiente)) return res.status(400).json({ error: 'ID inválido' });
   try {
-    const [r] = await dbPool.execute(
-      "UPDATE opf_pendientes SET estado = 'rechazado' WHERE id = ? AND estado = 'pendiente'",
-      [idPendiente]
-    );
+    const [r] = await dbPool.execute("UPDATE opf_pendientes SET estado = 'rechazado' WHERE id = ? AND estado = 'pendiente'", [idPendiente]);
     if (r.affectedRows === 0) return res.status(404).json({ error: 'Pendiente no encontrado o ya procesado' });
     res.json({ success: true });
-  } catch (e) {
-    console.error('[OpfReject]', e.message);
-    res.status(500).json({ error: 'Error rechazando pendiente' });
-  }
+  } catch (e) { console.error('[OpfReject]', e.message); res.status(500).json({ error: 'Error rechazando pendiente' }); }
 });
 
 app.post('/api/verificaciones/producto/admin', auth, adminOnly, async (req, res) => {
   const idVerificacion = parseInt(req.body.id_verificacion, 10);
-  const accion = String(req.body.accion || '').toLowerCase();
-  if (!Number.isFinite(idVerificacion)) return res.status(400).json({ error: 'ID inválido' });
-  if (!['eliminar', 'rechazar', 'desvincular'].includes(accion)) return res.status(400).json({ error: 'Acción inválida' });
+  const accion         = String(req.body.accion || '').toLowerCase();
+  if (!Number.isFinite(idVerificacion))                               return res.status(400).json({ error: 'ID inválido' });
+  if (!['eliminar','rechazar','desvincular'].includes(accion))        return res.status(400).json({ error: 'Acción inválida' });
 
   const conn = await dbPool.getConnection();
   try {
     await conn.beginTransaction();
-
     const [[verif]] = await conn.execute(
-      `SELECT vp.id, vp.id_producto, vp.estado
-       FROM verificaciones_producto vp
-       WHERE vp.id = ? FOR UPDATE`,
-      [idVerificacion]
+      `SELECT vp.id, vp.id_producto, vp.estado FROM verificaciones_producto vp WHERE vp.id = ? FOR UPDATE`, [idVerificacion]
     );
-
-    if (!verif || verif.estado !== 'pendiente') {
-      await conn.rollback();
-      return res.status(404).json({ error: 'Verificación no encontrada o ya cerrada' });
-    }
+    if (!verif || verif.estado !== 'pendiente') { await conn.rollback(); return res.status(404).json({ error: 'Verificación no encontrada o ya cerrada' }); }
 
     if (accion === 'eliminar') {
       await conn.execute("UPDATE verificaciones_producto SET estado = 'eliminado' WHERE id = ?", [idVerificacion]);
@@ -1751,117 +1533,81 @@ app.post('/api/verificaciones/producto/admin', auth, adminOnly, async (req, res)
     } else {
       await conn.execute("UPDATE verificaciones_producto SET estado = 'rechazado' WHERE id = ?", [idVerificacion]);
     }
-
     await conn.commit();
     const estadoFinal = accion === 'eliminar' ? 'eliminado' : (accion === 'desvincular' ? 'desvinculado' : 'rechazado');
     res.json({ success: true, estado: estadoFinal });
-  } catch (e) {
-    await conn.rollback();
-    console.error('[VerificacionProductoAdmin]', e.message);
-    res.status(500).json({ error: 'Error actualizando verificación' });
-  } finally {
-    conn.release();
-  }
+  } catch (e) { await conn.rollback(); console.error('[VerificacionProductoAdmin]', e.message); res.status(500).json({ error: 'Error actualizando verificación' }); }
+  finally { conn.release(); }
 });
 
-// ── EDITAR PRECIO DE UNA LÍNEA DE COMPRA ─────────────────────
 app.post('/api/compra/:idCompra/precio', auth, async (req, res) => {
-  const uid      = req.session.usuario.id;
-  const idCompra = parseInt(req.params.idCompra, 10);
+  const uid         = req.session.usuario.id;
+  const idCompra    = parseInt(req.params.idCompra, 10);
   const nuevoPrecio = parseFloat(req.body.precio);
-
-  if (isNaN(idCompra) || isNaN(nuevoPrecio)) {
-    return res.status(400).json({ error: 'Datos inválidos' });
-  }
+  if (isNaN(idCompra) || isNaN(nuevoPrecio)) return res.status(400).json({ error: 'Datos inválidos' });
 
   const conn = await dbPool.getConnection();
   try {
     await conn.beginTransaction();
-
-    // 1. Verificar que la compra pertenece al usuario y obtener datos
     const [[compra]] = await conn.execute(`
-      SELECT c.id, c.id_tiquet, c.id_producto, c.cantidad,
-             c.precio_unitario, c.es_descuento, t.supermercado
-      FROM compras c
-      JOIN tiquets t ON t.id = c.id_tiquet
+      SELECT c.id, c.id_tiquet, c.id_producto, c.cantidad, c.precio_unitario, c.es_descuento, t.supermercado
+      FROM compras c JOIN tiquets t ON t.id = c.id_tiquet
       WHERE c.id = ? AND c.id_usuario = ?
     `, [idCompra, uid]);
+    if (!compra) { await conn.rollback(); return res.status(404).json({ error: 'Compra no encontrada' }); }
 
-    if (!compra) {
-      await conn.rollback();
-      return res.status(404).json({ error: 'Compra no encontrada' });
-    }
+    await conn.execute('UPDATE compras SET precio_unitario = ? WHERE id = ?', [nuevoPrecio, idCompra]);
 
-    // 2. Actualizar precio en compras
-    await conn.execute(
-      'UPDATE compras SET precio_unitario = ? WHERE id = ?',
-      [nuevoPrecio, idCompra]
-    );
-
-    // 3. Registrar en historial_precios (solo si no es descuento)
     if (!compra.es_descuento && compra.id_producto && nuevoPrecio !== 0) {
-      await conn.execute(
-        'INSERT INTO historial_precios (id_producto, supermercado, precio) VALUES (?,?,?)',
-        [compra.id_producto, compra.supermercado, Math.abs(nuevoPrecio)]
-      );
+      await conn.execute('INSERT INTO historial_precios (id_producto, supermercado, precio) VALUES (?,?,?)',
+        [compra.id_producto, compra.supermercado, Math.abs(nuevoPrecio)]);
     }
 
-    // 4. Recalcular y actualizar total del tiquet
     const [[{ nuevo_total }]] = await conn.execute(
-      `SELECT COALESCE(SUM(cantidad * precio_unitario), 0) AS nuevo_total
-       FROM compras WHERE id_tiquet = ?`,
-      [compra.id_tiquet]
+      `SELECT COALESCE(SUM(cantidad * precio_unitario), 0) AS nuevo_total FROM compras WHERE id_tiquet = ?`, [compra.id_tiquet]
     );
-
-    await conn.execute(
-      'UPDATE tiquets SET total_tiquet = ? WHERE id = ?',
-      [nuevo_total, compra.id_tiquet]
-    );
-
+    await conn.execute('UPDATE tiquets SET total_tiquet = ? WHERE id = ?', [nuevo_total, compra.id_tiquet]);
     await conn.commit();
     res.json({ success: true, nuevo_precio: nuevoPrecio, nuevo_total });
-  } catch (e) {
-    await conn.rollback();
-    console.error('[EditarPrecio]', e.message);
-    res.status(500).json({ error: e.message });
-  } finally {
-    conn.release();
-  }
+  } catch (e) { await conn.rollback(); console.error('[EditarPrecio]', e.message); res.status(500).json({ error: e.message }); }
+  finally { conn.release(); }
 });
 
-// ── PERFIL ───────────────────────────────────────────────────
-
-app.get('/perfil', auth, async (req,res) => {
+// ════════════════════════════════════════════════════════════
+// PERFIL
+// ════════════════════════════════════════════════════════════
+app.get('/perfil', auth, async (req, res) => {
   try {
     const uid = req.session.usuario.id;
     const [[userDb]] = await dbPool.execute('SELECT email, totp_enabled FROM usuarios WHERE id = ?', [uid]);
-    const [historial, totales] = await Promise.all([ getTiquets(uid), getTotalesPeriodo(uid) ]);
-    const messages =[];
+    const [historial, totales] = await Promise.all([getTiquets(uid), getTotalesPeriodo(uid)]);
+    const messages = [];
     if (req.query.success) messages.push(['success', decodeURIComponent(req.query.success)]);
     if (req.query.error)   messages.push(['danger',  decodeURIComponent(req.query.error)]);
     res.render('perfil.html', { ...navLocals(req), email: userDb.email || '', totp_enabled: userDb.totp_enabled === 1, total_tiquets: historial.length, total_gastado: totales.total, messages });
-  } catch(e) { res.redirect('/dashboard'); }
+  } catch (e) { res.redirect('/dashboard'); }
 });
 
-app.post('/perfil', auth, async (req,res) => {
+app.post('/perfil', auth, async (req, res) => {
   const { nuevo_username, nuevo_email, password_actual, nueva_password } = req.body;
-  const uid = req.session.usuario.id; const msgs = [];
+  const uid  = req.session.usuario.id;
+  const msgs = [];
   try {
     const [[user]] = await dbPool.execute('SELECT * FROM usuarios WHERE id=?', [uid]);
     if (!user) return res.redirect('/logout');
-    if (nuevo_username && nuevo_username !== user.username) { await dbPool.execute('UPDATE usuarios SET username=? WHERE id=?', [nuevo_username, uid]); req.session.usuario.username = nuevo_username; msgs.push(['success','Nombre actualizado.']); }
-    if (nuevo_email && nuevo_email !== user.email) { await dbPool.execute('UPDATE usuarios SET email=? WHERE id=?',[nuevo_email, uid]); req.session.usuario.email = nuevo_email; msgs.push(['success','Email actualizado.']); }
+    if (nuevo_username && nuevo_username !== user.username) { await dbPool.execute('UPDATE usuarios SET username=? WHERE id=?', [nuevo_username, uid]); req.session.usuario.username = nuevo_username; msgs.push(['success', 'Nombre actualizado.']); }
+    if (nuevo_email && nuevo_email !== user.email)          { await dbPool.execute('UPDATE usuarios SET email=? WHERE id=?',    [nuevo_email,    uid]); req.session.usuario.email    = nuevo_email;    msgs.push(['success', 'Email actualizado.']); }
     if (password_actual && nueva_password) {
-      if (!bcryptjs.compareSync(password_actual, user.password_hash)) msgs.push(['danger','Contraseña actual incorrecta.']);
-      else if (nueva_password.length < 8) msgs.push(['danger','Mínimo 8 caracteres.']);
-      else { await dbPool.execute('UPDATE usuarios SET password_hash=? WHERE id=?',[bcryptjs.hashSync(nueva_password, 12), uid]); msgs.push(['success','Contraseña cambiada.']); }
+      if (!bcryptjs.compareSync(password_actual, user.password_hash)) msgs.push(['danger', 'Contraseña actual incorrecta.']);
+      else if (nueva_password.length < 8)                             msgs.push(['danger', 'Mínimo 8 caracteres.']);
+      else { await dbPool.execute('UPDATE usuarios SET password_hash=? WHERE id=?', [bcryptjs.hashSync(nueva_password, 12), uid]); msgs.push(['success', 'Contraseña cambiada.']); }
     }
-  } catch(e) { msgs.push(['danger','Error al actualizar.']); }
+  } catch (e) { msgs.push(['danger', 'Error al actualizar.']); }
   try {
     const [[userDb]] = await dbPool.execute('SELECT email, totp_enabled FROM usuarios WHERE id = ?', [uid]);
-    const [historial, totales] = await Promise.all([ getTiquets(uid), getTotalesPeriodo(uid) ]);
+    const [historial, totales] = await Promise.all([getTiquets(uid), getTotalesPeriodo(uid)]);
     res.render('perfil.html', { ...navLocals(req), email: userDb.email || '', totp_enabled: userDb.totp_enabled === 1, total_tiquets: historial.length, total_gastado: totales.total, messages: msgs });
-  } catch(e) { res.redirect('/dashboard'); }
+  } catch (e) { res.redirect('/dashboard'); }
 });
 
 app.post('/perfil/avatar', auth, (req, res) => {
@@ -1870,27 +1616,24 @@ app.post('/perfil/avatar', auth, (req, res) => {
     let finalPath = req.file.path;
     try {
       const detectedExt = await detectarAvatarPorMagic(req.file.path);
-      if (!detectedExt) {
-        await fs.promises.unlink(req.file.path).catch(() => {});
-        return res.json({ success: false, error: 'Formato de avatar no permitido' });
-      }
+      if (!detectedExt) { await fs.promises.unlink(req.file.path).catch(() => {}); return res.json({ success: false, error: 'Formato de avatar no permitido' }); }
       let finalFilename = req.file.filename;
-      const currentExt = path.extname(finalFilename).toLowerCase();
+      const currentExt  = path.extname(finalFilename).toLowerCase();
       if (currentExt !== detectedExt) {
-        const base = path.basename(finalFilename, currentExt || undefined);
+        const base        = path.basename(finalFilename, currentExt || undefined);
         const newFilename = `${base}${detectedExt}`;
-        const newPath = path.join(path.dirname(req.file.path), newFilename);
+        const newPath     = path.join(path.dirname(req.file.path), newFilename);
         await fs.promises.rename(req.file.path, newPath);
-        finalPath = newPath;
+        finalPath     = newPath;
         finalFilename = newFilename;
       }
-      const url = `/avatars/${finalFilename}`;
-      const [[u]] = await dbPool.execute('SELECT avatar FROM usuarios WHERE id=?',[req.session.usuario.id]);
+      const url   = `/avatars/${finalFilename}`;
+      const [[u]] = await dbPool.execute('SELECT avatar FROM usuarios WHERE id=?', [req.session.usuario.id]);
       if (u?.avatar?.startsWith('/avatars/')) { const old = path.join(__dirname, 'public', u.avatar); if (fs.existsSync(old)) fs.unlink(old, () => {}); }
       await dbPool.execute('UPDATE usuarios SET avatar=? WHERE id=?', [url, req.session.usuario.id]);
       req.session.usuario.avatar = url;
       res.json({ success: true, avatar: url });
-    } catch(e) {
+    } catch (e) {
       await fs.promises.unlink(finalPath).catch(() => {});
       res.json({ success: false, error: 'Error guardando avatar' });
     }
@@ -1898,7 +1641,8 @@ app.post('/perfil/avatar', auth, (req, res) => {
 });
 
 app.post('/perfil/eliminar_cuenta', auth, async (req, res) => {
-  const { password_borrado } = req.body; const uid = req.session.usuario.id;
+  const { password_borrado } = req.body;
+  const uid  = req.session.usuario.id;
   if (!password_borrado) return res.redirect('/perfil?error=Debes+introducir+tu+contraseña');
   const conn = await dbPool.getConnection();
   try {
@@ -1910,40 +1654,43 @@ app.post('/perfil/eliminar_cuenta', auth, async (req, res) => {
     await conn.execute('DELETE FROM compras              WHERE id_usuario=?', [uid]);
     await conn.execute('DELETE FROM tiquets              WHERE id_usuario=?', [uid]);
     await conn.execute('DELETE FROM codigos_recuperacion WHERE id_usuario=?', [uid]);
-    await conn.execute('DELETE FROM usuarios             WHERE id=?',[uid]);
+    await conn.execute('DELETE FROM usuarios             WHERE id=?',         [uid]);
     await conn.commit();
     req.session.destroy(() => res.redirect('/login?success=Tu+cuenta+ha+sido+eliminada+para+siempre'));
-  } catch(e) { await conn.rollback(); res.redirect('/perfil?error=Error+interno'); } finally { conn.release(); }
+  } catch (e) { await conn.rollback(); res.redirect('/perfil?error=Error+interno'); }
+  finally { conn.release(); }
 });
 
-// ── 2FA ──────────────────────────────────────────────────────
+// ── 2FA ───────────────────────────────────────────────────────
 app.get('/perfil/2fa/setup', auth, async (req, res) => {
-  const uid = req.session.usuario.id;
+  const uid   = req.session.usuario.id;
   const [[u]] = await dbPool.execute('SELECT totp_enabled FROM usuarios WHERE id=?', [uid]);
   if (u.totp_enabled) return res.redirect('/perfil?error=2FA+ya+activo');
-  const secret = speakeasy.generateSecret({ name: `Esítiron (${req.session.usuario.username})`, length: 20 });
+  const secret         = speakeasy.generateSecret({ name: `Esítiron (${req.session.usuario.username})`, length: 20 });
   req.session.totp_setup_secret = secret.base32;
   const formattedSecret = secret.base32.match(/.{1,4}/g).join(' ');
-  const qrDataUrl = await QRCode.toDataURL(secret.otpauth_url);
-  res.render('perfil_2fa_setup.html', { usuario: req.session.usuario.username, qr: qrDataUrl, secret_manual: formattedSecret, messages:[] });
+  const qrDataUrl       = await QRCode.toDataURL(secret.otpauth_url);
+  res.render('perfil_2fa_setup.html', { usuario: req.session.usuario.username, qr: qrDataUrl, secret_manual: formattedSecret, messages: [] });
 });
 
 app.post('/perfil/2fa/setup', auth, async (req, res) => {
-  const { token } = req.body; const secret = req.session.totp_setup_secret;
+  const { token } = req.body;
+  const secret    = req.session.totp_setup_secret;
   if (!secret) return res.redirect('/perfil/2fa/setup');
-  const valid = speakeasy.totp.verify({ secret, encoding: 'base32', token: (token||'').replace(/\s/g,''), window: 1 });
+  const valid = speakeasy.totp.verify({ secret, encoding: 'base32', token: (token || '').replace(/\s/g, ''), window: 1 });
   if (!valid) return res.redirect('/perfil/2fa/setup?error=Código+incorrecto');
   const encryptedSecret = encrypt(secret);
-  const backupCodes = Array.from({ length: 8 }, () => crypto.randomBytes(4).toString('hex'));
-  const hashedCodes = backupCodes.map(code => bcryptjs.hashSync(code, 10));
+  const backupCodes     = Array.from({ length: 8 }, () => crypto.randomBytes(4).toString('hex'));
+  const hashedCodes     = backupCodes.map(code => bcryptjs.hashSync(code, 10));
   const conn = await dbPool.getConnection();
   try {
     await conn.beginTransaction();
-    await conn.execute('UPDATE usuarios SET totp_secret=?, totp_enabled=1 WHERE id=?',[encryptedSecret, req.session.usuario.id]);
-    await conn.execute('DELETE FROM codigos_recuperacion WHERE id_usuario=?',[req.session.usuario.id]);
-    for (const hash of hashedCodes) await conn.execute('INSERT INTO codigos_recuperacion (id_usuario, codigo_hash) VALUES (?,?)',[req.session.usuario.id, hash]);
+    await conn.execute('UPDATE usuarios SET totp_secret=?, totp_enabled=1 WHERE id=?', [encryptedSecret, req.session.usuario.id]);
+    await conn.execute('DELETE FROM codigos_recuperacion WHERE id_usuario=?', [req.session.usuario.id]);
+    for (const hash of hashedCodes) await conn.execute('INSERT INTO codigos_recuperacion (id_usuario, codigo_hash) VALUES (?,?)', [req.session.usuario.id, hash]);
     await conn.commit();
-  } catch(e) { await conn.rollback(); return res.redirect('/perfil/2fa/setup?error=Error+interno+al+guardar'); } finally { conn.release(); }
+  } catch (e) { await conn.rollback(); return res.redirect('/perfil/2fa/setup?error=Error+interno+al+guardar'); }
+  finally { conn.release(); }
   delete req.session.totp_setup_secret;
   req.session.backupCodes = backupCodes;
   res.redirect('/perfil/2fa/backup');
@@ -1957,8 +1704,9 @@ app.get('/perfil/2fa/backup', auth, (req, res) => {
 });
 
 app.post('/perfil/2fa/disable', auth, async (req, res) => {
-  const { password } = req.body; const uid = req.session.usuario.id;
-  const [[u]] = await dbPool.execute('SELECT password_hash FROM usuarios WHERE id=?', [uid]);
+  const { password } = req.body;
+  const uid          = req.session.usuario.id;
+  const [[u]]        = await dbPool.execute('SELECT password_hash FROM usuarios WHERE id=?', [uid]);
   if (!bcryptjs.compareSync(password, u.password_hash)) return res.redirect('/perfil?error=Contraseña+incorrecta');
   const conn = await dbPool.getConnection();
   try {
@@ -1966,27 +1714,25 @@ app.post('/perfil/2fa/disable', auth, async (req, res) => {
     await conn.execute('UPDATE usuarios SET totp_secret=NULL, totp_enabled=0 WHERE id=?', [uid]);
     await conn.execute('DELETE FROM codigos_recuperacion WHERE id_usuario=?', [uid]);
     await conn.commit();
-  } catch(e) { await conn.rollback(); } finally { conn.release(); }
+  } catch (e) { await conn.rollback(); }
+  finally { conn.release(); }
   res.redirect('/perfil?success=2FA+desactivado');
 });
 
-//  GRUPOS Y RUTAS MODULARES
+// ── Grupos ────────────────────────────────────────────────────
 const { initGruposRoutes } = require('./grupos');
-
-const gruposRouter = initGruposRoutes(dbPool); 
-
+const gruposRouter = initGruposRoutes(dbPool);
 app.use('/', gruposRouter);
 
-// ── API LEGACY ────────────────────────────────────────────────
-app.get('/api/tiquets', auth, async (req,res) => {
+// ── API legacy ────────────────────────────────────────────────
+app.get('/api/tiquets', auth, async (req, res) => {
   try { res.json({ success: true, data: await getTiquets(req.session.usuario.id) }); }
-  catch(e) { res.status(500).json({ success: false, error: e.message }); }
+  catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
 
-console.log('[SECURITY] ✅ Endpoint /avatar/ protegido habilitado');
-console.log('[OFF] ✅ Búsqueda OFF habilitada en /api/proxy/off (fallback Nginx en /api/openfoodfacts/)');
-
-// ── ARRANQUE ─────────────────────────────────────────────────
+// ── Arranque ──────────────────────────────────────────────────
 initDB().then(() => {
-  app.listen(PORT, '0.0.0.0', () => console.log(`[Esítiron] port ${PORT}`));
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`[Esítiron] port ${PORT} | producción=${IS_PRODUCTION} | cookies secure=${IS_PRODUCTION}`);
+  });
 }).catch(e => { console.error('[Fatal]', e.message); process.exit(1); });

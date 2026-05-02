@@ -3,15 +3,63 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Esitiron — Verificar referencias</title>
+  <title>Esítiron — Verificar referencias</title>
   <script src="/js/theme.js"></script>
   <link rel="stylesheet" href="/css/main.css">
   <link rel="stylesheet" href="/css/class/todos_productos.css?v=20260428-2">
+  <link rel="stylesheet" href="/css/class/opf_wizard.css">
   <link rel="icon" type="image/png" href="/img/logo.jpg">
   <style>
-    .verif-actions { display:flex; gap:0.5rem; }
-    .verif-row img { width:40px; height:40px; object-fit:contain; border-radius:6px; border:1px solid var(--border); background:white; }
-    .badge-mini { font-size:0.72rem; padding:3px 8px; border-radius:999px; border:1px solid var(--border); background:var(--surface2); color:var(--text2); }
+    /* ── Tablas de verificación ───────────────────────── */
+    .verif-section-title {
+      font-size: 0.78rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--text3);
+      margin: 0 0 0.6rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .verif-section-title::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+    .verif-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    .verif-row img {
+      width: 40px; height: 40px;
+      object-fit: contain;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: white;
+    }
+    .badge-mini {
+      font-size: 0.72rem;
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--text2);
+      font-family: monospace;
+    }
+    .count-pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 20px;
+      height: 20px;
+      padding: 0 6px;
+      border-radius: 999px;
+      background: var(--accent);
+      color: white;
+      font-size: 0.68rem;
+      font-weight: 700;
+    }
+    .count-pill.warn { background: #d97706; }
+    .count-pill.red  { background: var(--red); }
   </style>
 </head>
 <body>
@@ -19,9 +67,9 @@
 <nav class="navbar">
   <div class="nav-links">
     <a href="/dashboard" class="nav-link">📊 Dashboard</a>
-    <a href="/tiquets" class="nav-link">🧾 Tiquets</a>
+    <a href="/tiquets"   class="nav-link">🧾 Tiquets</a>
     <a href="/productos" class="nav-link active">🛍️ Productos</a>
-    <a href="/grupos" class="nav-link">👥 Grupos</a>
+    <a href="/grupos"    class="nav-link">👥 Grupos</a>
   </div>
   <div class="nav-right">
     <div class="user-menu-wrap" id="userMenuWrap">
@@ -40,7 +88,7 @@
         </div>
         <a href="/perfil" class="ud-item">👤 Mi perfil</a>
         <div class="ud-divider"></div>
-        <a href="/logout" class="ud-item danger">⏻ Cerrar sesion</a>
+        <a href="/logout" class="ud-item danger">⏻ Cerrar sesión</a>
       </div>
     </div>
     <button class="theme-toggle" id="theme-toggle" title="Cambiar tema">
@@ -54,21 +102,9 @@
   <div class="page-header" style="display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap;">
     <div>
       <h1 class="page-title">Verificar referencias</h1>
-      <p class="page-subtitle">Revisa asociaciones de codigos de barras pendientes.</p>
+      <p class="page-subtitle">Añade a Open Food Facts y revisa las verificaciones pendientes de la comunidad.</p>
     </div>
-    <div style="flex-shrink:0;">
-      <a href="/productos" class="btn-clear-filters" style="margin-top:0.6rem; display:inline-flex;">← Volver a productos</a>
-    </div>
-  </div>
-
-  <div class="card" style="margin-bottom:1.5rem; padding:1rem;">
-    <div style="font-weight:700; margin-bottom:0.6rem;">Crear referencia manual</div>
-    <div style="display:flex; gap:0.6rem; flex-wrap:wrap;">
-      <input type="number" id="refProductoId" class="wizard-input" placeholder="ID producto" style="max-width:160px;">
-      <input type="text" id="refCodigo" class="wizard-input" placeholder="EAN/UPC">
-      <button class="btn-accion" onclick="crearReferenciaAdmin()">➕ Crear referencia</button>
-    </div>
-    <div style="font-size:0.8rem; color:var(--text3); margin-top:0.4rem;">Se crea como pendiente para revision.</div>
+    <a href="/productos" class="btn-clear-filters" style="display:inline-flex;">← Volver a productos</a>
   </div>
 
   {% if messages and messages.length > 0 %}
@@ -79,236 +115,420 @@
   </div>
   {% endif %}
 
-  <div class="card table-container">
-    <table>
-      <thead>
-        <tr>
-          <th>Producto</th>
-          <th>Codigo</th>
-          <th>Votos</th>
-          <th>Creado</th>
-          <th>Acciones</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for v in pendientes %}
-        <tr class="verif-row">
-          <td>
-            <div style="display:flex; align-items:center; gap:10px;">
-              {% if v.foto_url %}
-                <img src="{{ v.foto_url }}" alt="">
-              {% endif %}
-              <div>
-                <div style="font-weight:700; font-size:0.95rem; color:var(--text);">{{ v.nombre }}</div>
-                {% if v.marca %}
-                  <small style="color:var(--text2); font-size:0.78rem;">{{ v.marca | lower }}</small>
-                {% endif %}
-              </div>
-            </div>
-          </td>
-          <td><span class="badge-mini">{{ v.codigo_barras }}</span></td>
-          <td><span class="badge-mini">{{ v.votos_si }} ✓ / {{ v.votos_no }} ✗</span></td>
-          <td>{{ v.creado_en | formatDate }}</td>
-          <td>
-            <div class="verif-actions">
-              <button class="btn-accion" onclick="accionVerif({{ v.id }}, 'aprobar')">✅ Aprobar</button>
-              <button class="btn-accion" onclick="accionVerif({{ v.id }}, 'rechazar')">✗ Rechazar</button>
-            </div>
-          </td>
-        </tr>
-        {% else %}
-        <tr>
-          <td colspan="5" style="text-align:center; padding:2.5rem; color:var(--text3);">
-            No hay verificaciones pendientes.
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+  <div class="admin-layout">
+    
+    <!-- ============================================== -->
+    <!-- COLUMNA IZQUIERDA: WIZARD DE OPEN FOOD FACTS -->
+    <!-- ============================================== -->
+    <div class="wizard-column">
+      <div class="card wizard-card">
+        
+        <!-- PASO 1: Código EAN -->
+        <div id="step-1" class="wizard-step active">
+          <div class="step-icon">🏷️</div>
+          <h2>Buscador OPF</h2>
+          <p>Introduce o escanea el código de barras del producto (EAN/UPC).</p>
+          <div class="form-group">
+            <input type="text" id="eanInput" class="wizard-input text-center" placeholder="Ej: 8480000123456" autofocus>
+          </div>
+          <div class="step-actions">
+            <button class="btn-primary w-full" onclick="lookupEAN()">Buscar en la base de datos</button>
+          </div>
+          <div id="loading-1" class="loading-spinner hidden">Buscando producto...</div>
+          <div id="error-1" class="error-msg hidden"></div>
+        </div>
 
-  <div class="card table-container" style="margin-top:1.5rem;">
-    <table>
-      <thead>
-        <tr>
-          <th>Producto</th>
-          <th>EAN</th>
-          <th>Solicitado por</th>
-          <th>Creado</th>
-          <th>Acciones</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for p in pendientes_opf %}
-        <tr class="verif-row">
-          <td>
-            <div style="display:flex; align-items:center; gap:10px;">
-              <div>
-                <div style="font-weight:700; font-size:0.95rem; color:var(--text);">{{ p.nombre }}</div>
-                {% if p.marca %}
-                  <small style="color:var(--text2); font-size:0.78rem;">{{ p.marca | lower }}</small>
-                {% endif %}
-                {% if p.foto_path %}
-                  <small style="color:var(--text3); font-size:0.75rem; display:block;">Foto subida</small>
-                {% endif %}
-              </div>
-            </div>
-          </td>
-          <td><span class="badge-mini">{{ p.ean }}</span></td>
-          <td><span class="badge-mini">{{ p.usuario }}</span></td>
-          <td>{{ p.creado_en | formatDate }}</td>
-          <td>
-            <div class="verif-actions">
-              <button class="btn-accion" onclick="accionOpf({{ p.id }}, 'aprobar')">✅ Aprobar</button>
-              <button class="btn-accion" onclick="accionOpf({{ p.id }}, 'rechazar')">✗ Rechazar</button>
-            </div>
-          </td>
-        </tr>
-        {% else %}
-        <tr>
-          <td colspan="5" style="text-align:center; padding:2.5rem; color:var(--text3);">
-            No hay productos OPF pendientes.
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+        <!-- PASO 2: Verificación (El producto ya existe) -->
+        <div id="step-2" class="wizard-step hidden">
+          <div class="step-icon">👀</div>
+          <h2>Producto Encontrado</h2>
+          <p>Este código de barras ya existe en Open Food Facts.</p>
+          <div class="product-preview" id="existingProductPreview"></div>
+          <h3 style="margin-top: 1.5rem; font-size:1rem;">¿Es este el producto?</h3>
+          <div class="step-actions double">
+            <button class="btn-primary" onclick="vincularExistente()">Sí, importarlo</button>
+            <button class="btn-secondary" onclick="goToStep(1)">No, volver</button>
+          </div>
+          <div id="error-2" class="error-msg hidden"></div>
+        </div>
 
-  <div class="card table-container" style="margin-top:1.5rem;">
-    <table>
-      <thead>
-        <tr>
-          <th>Producto</th>
-          <th>Motivo</th>
-          <th>Creado</th>
-          <th>Acciones</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for v in pendientes_baja %}
-        <tr class="verif-row">
-          <td>
-            <div style="display:flex; align-items:center; gap:10px;">
-              {% if v.foto_url %}
-                <img src="{{ v.foto_url }}" alt="">
-              {% endif %}
-              <div>
-                <div style="font-weight:700; font-size:0.95rem; color:var(--text);">{{ v.nombre }}</div>
-                {% if v.marca %}
-                  <small style="color:var(--text2); font-size:0.78rem;">{{ v.marca | lower }}</small>
-                {% endif %}
+        <!-- PASO 3: Formulario de Creación / Borrador -->
+        <div id="step-3" class="wizard-step hidden">
+          <div class="step-icon">📸</div>
+          <h2>Nuevo Producto</h2>
+          <p>No hemos encontrado el EAN <strong id="eanDisplay" class="accent"></strong>. Ayuda a la comunidad añadiéndolo.</p>
+          <form id="newProductForm" onsubmit="submitProduct(event)">
+            <div class="form-group">
+              <label for="nombre">Nombre del Producto <span class="req">*</span></label>
+              <input type="text" id="nombre" name="nombre" class="wizard-input" placeholder="Ej: Tomate frito casero" required>
+            </div>
+            <div class="form-group">
+              <label for="marca">Marca <span class="req">*</span></label>
+              <input type="text" id="marca" name="marca" class="wizard-input" placeholder="Ej: Hacendado" required>
+            </div>
+            <div class="form-group">
+              <label>Fotografía Frontal (Opcional en Borrador)</label>
+              <div class="file-upload-wrap">
+                <input type="file" id="foto" name="foto" accept="image/jpeg, image/png, image/webp" onchange="previewImage(this)">
+                <div class="file-upload-text" id="fileText">Haz clic para subir una imagen</div>
+                <img id="imgPreview" class="img-preview hidden">
               </div>
             </div>
-          </td>
-          <td><span class="badge-mini">{{ v.motivo or 'Sin motivo' }}</span></td>
-          <td>{{ v.creado_en | formatDate }}</td>
-          <td>
-            <div class="verif-actions">
-              <button class="btn-accion" onclick="accionBaja({{ v.id }}, 'desvincular')">🔗 Quitar referencia</button>
-              <button class="btn-accion" onclick="accionBaja({{ v.id }}, 'eliminar')">🗑️ Eliminar producto</button>
-              <button class="btn-accion" onclick="accionBaja({{ v.id }}, 'rechazar')">↩️ Mantener</button>
+            <div class="step-actions double" style="margin-top: 2rem;">
+              <button type="button" class="btn-secondary" onclick="saveDraft()">Borrador 📝</button>
+              <button type="submit" class="btn-primary" id="btnSubmit">Enviar 🚀</button>
             </div>
-          </td>
-        </tr>
-        {% else %}
-        <tr>
-          <td colspan="4" style="text-align:center; padding:2.5rem; color:var(--text3);">
-            No hay bajas pendientes.
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+          </form>
+          <div id="loading-3" class="loading-spinner hidden">Procesando...</div>
+          <div id="error-3" class="error-msg hidden"></div>
+        </div>
+
+        <!-- PASO 4: Éxito -->
+        <div id="step-4" class="wizard-step hidden">
+          <div class="step-icon" style="color: #10B981;">✅</div>
+          <h2>Completado</h2>
+          <p id="successMessage">El producto se ha procesado correctamente.</p>
+          <div class="step-actions">
+            <button class="btn-secondary w-full" onclick="location.reload()">Añadir otro</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ============================================== -->
+    <!-- COLUMNA DERECHA: COLAS DE VERIFICACIÓN         -->
+    <!-- ============================================== -->
+    <div class="queues-column">
+      
+      <!-- ══ BLOQUE: Verificaciones de código de barras pendientes ════════ -->
+      <div class="verif-section-title">
+        Verificaciones de código de barras
+        {% if pendientes and pendientes.length > 0 %}
+          <span class="count-pill warn">{{ pendientes | length }}</span>
+        {% endif %}
+      </div>
+      <div class="card table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Producto</th>
+              <th>Código</th>
+              <th>Votos</th>
+              <th>Creado</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for v in pendientes %}
+            <tr class="verif-row">
+              <td>
+                <div style="display:flex; align-items:center; gap:10px;">
+                  {% if v.foto_url %}<img src="{{ v.foto_url }}" alt="">{% endif %}
+                  <div>
+                    <div style="font-weight:700; font-size:0.95rem; color:var(--text);">{{ v.nombre }}</div>
+                    {% if v.marca %}<small style="color:var(--text2); font-size:0.78rem;">{{ v.marca | lower }}</small>{% endif %}
+                  </div>
+                </div>
+              </td>
+              <td><span class="badge-mini">{{ v.codigo_barras }}</span></td>
+              <td><span class="badge-mini">{{ v.votos_si }} ✓ / {{ v.votos_no }} ✗</span></td>
+              <td style="font-size:0.82rem; color:var(--text2);">{{ v.creado_en | formatDate }}</td>
+              <td>
+                <div class="verif-actions">
+                  <button class="btn-accion" onclick="accionVerif({{ v.id }}, 'aprobar')">✅ Aprobar</button>
+                  <button class="btn-accion" onclick="accionVerif({{ v.id }}, 'rechazar')">✗ Rechazar</button>
+                </div>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" style="text-align:center; padding:2.5rem; color:var(--text3);">No hay vinculaciones pendientes.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- ══ BLOQUE: Envíos a OPF pendientes de revisión admin ═══════════ -->
+      <div class="verif-section-title">
+        Envíos a Open Food Facts
+        {% if pendientes_opf and pendientes_opf.length > 0 %}
+          <span class="count-pill">{{ pendientes_opf | length }}</span>
+        {% endif %}
+      </div>
+      <div class="card table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Producto</th>
+              <th>EAN</th>
+              <th>Usuario</th>
+              <th>Creado</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in pendientes_opf %}
+            <tr class="verif-row">
+              <td>
+                <div>
+                  <div style="font-weight:700; font-size:0.95rem; color:var(--text);">{{ p.nombre }}</div>
+                  {% if p.marca %}<small style="color:var(--text2); font-size:0.78rem;">{{ p.marca | lower }}</small>{% endif %}
+                  {% if p.foto_path %}<small style="color:var(--text3); font-size:0.72rem; display:block;">📷 Foto subida</small>{% endif %}
+                </div>
+              </td>
+              <td><span class="badge-mini">{{ p.ean }}</span></td>
+              <td><span class="badge-mini">{{ p.usuario }}</span></td>
+              <td style="font-size:0.82rem; color:var(--text2);">{{ p.creado_en | formatDate }}</td>
+              <td>
+                <div class="verif-actions">
+                  <button class="btn-accion" onclick="accionOpf({{ p.id }}, 'aprobar')">✅ Aprobar</button>
+                  <button class="btn-accion" onclick="accionOpf({{ p.id }}, 'rechazar')">✗ Rechazar</button>
+                </div>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" style="text-align:center; padding:2.5rem; color:var(--text3);">No hay productos OPF pendientes de revisión.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- ══ BLOQUE: Solicitudes de baja ═════════════════════════════════ -->
+      <div class="verif-section-title">
+        Solicitudes de baja o desvinculación
+        {% if pendientes_baja and pendientes_baja.length > 0 %}
+          <span class="count-pill red">{{ pendientes_baja | length }}</span>
+        {% endif %}
+      </div>
+      <div class="card table-container" style="margin-bottom: 2rem;">
+        <table>
+          <thead>
+            <tr>
+              <th>Producto</th>
+              <th>Motivo</th>
+              <th>Creado</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for v in pendientes_baja %}
+            <tr class="verif-row">
+              <td>
+                <div style="display:flex; align-items:center; gap:10px;">
+                  {% if v.foto_url %}<img src="{{ v.foto_url }}" alt="">{% endif %}
+                  <div>
+                    <div style="font-weight:700; font-size:0.95rem; color:var(--text);">{{ v.nombre }}</div>
+                    {% if v.marca %}<small style="color:var(--text2); font-size:0.78rem;">{{ v.marca | lower }}</small>{% endif %}
+                  </div>
+                </div>
+              </td>
+              <td><span class="badge-mini">{{ v.motivo or 'Sin motivo' }}</span></td>
+              <td style="font-size:0.82rem; color:var(--text2);">{{ v.creado_en | formatDate }}</td>
+              <td>
+                <div class="verif-actions">
+                  <button class="btn-accion" onclick="accionBaja({{ v.id }}, 'desvincular')">🔗 Quitar ref.</button>
+                  <button class="btn-accion" onclick="accionBaja({{ v.id }}, 'eliminar')">🗑️ Eliminar</button>
+                  <button class="btn-accion" onclick="accionBaja({{ v.id }}, 'rechazar')">↩️ Mantener</button>
+                </div>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" style="text-align:center; padding:2.5rem; color:var(--text3);">No hay bajas pendientes.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+    </div>
   </div>
 </main>
 
 <script>
+// ── Menú usuario ──────────────────────────────────────────────
 function toggleMenu() { document.getElementById('userDropdown').classList.toggle('open'); }
 document.addEventListener('click', e => {
   const w = document.getElementById('userMenuWrap');
   if (w && !w.contains(e.target)) document.getElementById('userDropdown').classList.remove('open');
 });
 
-async function accionVerif(id, accion) {
-  const ok = confirm(`¿Confirmas ${accion} esta referencia?`);
-  if (!ok) return;
-  try {
-    const res = await fetch('/api/verificaciones/admin', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id_verificacion: id, accion })
-    });
-    const data = await res.json();
-    if (res.ok) location.reload();
-    else alert(data.error || 'No se pudo actualizar la verificacion');
-  } catch (e) {
-    alert('No se pudo actualizar la verificacion');
-  }
+// ==========================================
+// LÓGICA DEL WIZARD OPF
+// ==========================================
+let currentEAN = '';
+let existingProduct = null;
+
+function goToStep(step) {
+  document.querySelectorAll('.wizard-step').forEach(el => el.classList.add('hidden'));
+  document.getElementById(`step-${step}`).classList.remove('hidden');
+  document.querySelectorAll('.error-msg').forEach(el => el.classList.add('hidden'));
 }
 
-async function crearReferenciaAdmin() {
-  const idProducto = document.getElementById('refProductoId').value.trim();
-  const codigo = document.getElementById('refCodigo').value.trim();
-  if (!idProducto || !codigo) {
-    alert('Completa el ID de producto y el codigo.');
+async function lookupEAN() {
+  const ean = document.getElementById('eanInput').value.trim().replace(/\D/g, '');
+  if (!ean || ean.length < 8) {
+    showError(1, 'Por favor, introduce un código de barras válido.');
     return;
   }
-  const ok = confirm('¿Crear referencia y dejarla pendiente de revision?');
-  if (!ok) return;
+  currentEAN = ean;
+  document.getElementById('loading-1').classList.remove('hidden');
+  document.getElementById('error-1').classList.add('hidden');
 
   try {
-    const res = await fetch('/api/verificaciones/admin/crear', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id_producto: Number(idProducto), codigo_barras: codigo })
-    });
+    const res = await fetch(`/api/opf/lookup/${ean}`);
     const data = await res.json();
-    if (res.ok) location.reload();
-    else alert(data.error || 'No se pudo crear la referencia');
-  } catch (e) {
-    alert('No se pudo crear la referencia');
+    document.getElementById('loading-1').classList.add('hidden');
+
+    if (data.found) {
+      existingProduct = {
+        ean,
+        nombre: data.product.product_name || '',
+        marca: data.product.brands || '',
+        image_url: data.product.image_url || ''
+      };
+      const preview = document.getElementById('existingProductPreview');
+      preview.innerHTML = `
+        ${data.product.image_url ? `<img src="${data.product.image_url}" alt="Foto">` : '<div class="no-img">Sin imagen</div>'}
+        <div class="preview-info">
+          <h4>${data.product.product_name || 'Desconocido'}</h4>
+          <p>${data.product.brands || 'Sin marca'}</p>
+        </div>
+      `;
+      goToStep(2);
+    } else {
+      existingProduct = null;
+      document.getElementById('eanDisplay').textContent = ean;
+      goToStep(3);
+    }
+  } catch (err) {
+    document.getElementById('loading-1').classList.add('hidden');
+    showError(1, 'Error conectando con el servidor. Inténtalo de nuevo.');
   }
 }
 
-async function accionBaja(id, accion) {
-  const etiquetas = {
-    eliminar: 'eliminar este producto',
-    desvincular: 'quitar la referencia sin borrar el producto',
-    rechazar: 'mantener el producto',
-  };
-  const ok = confirm(`¿Confirmas ${etiquetas[accion] || accion}?`);
-  if (!ok) return;
+async function vincularExistente() {
+  if (!existingProduct) {
+    showError(2, 'No hay datos del producto para guardar.');
+    return;
+  }
   try {
-    const res = await fetch('/api/verificaciones/producto/admin', {
+    const res = await fetch('/api/opf/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(existingProduct)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'No se pudo guardar el producto.');
+    document.getElementById('successMessage').textContent = 'Producto importado a tu catálogo local correctamente.';
+    goToStep(4);
+  } catch (err) {
+    showError(2, err.message);
+  }
+}
+
+function previewImage(input) {
+  const file = input.files[0];
+  if (file) {
+    document.getElementById('fileText').style.display = 'none';
+    const img = document.getElementById('imgPreview');
+    img.src = URL.createObjectURL(file);
+    img.classList.remove('hidden');
+  }
+}
+
+async function saveDraft() {
+  const formData = new FormData(document.getElementById('newProductForm'));
+  formData.append('ean', currentEAN);
+  formData.append('status', 'draft');
+  await sendFormData(formData, 'Borrador guardado correctamente. Podrás completarlo más tarde.');
+}
+
+async function submitProduct(e) {
+  e.preventDefault();
+  const foto = document.getElementById('foto').files[0];
+  if (!foto) {
+    showError(3, 'Para enviarlo a OPF es obligatorio adjuntar una fotografía frontal.');
+    return;
+  }
+  const formData = new FormData(e.target);
+  formData.append('ean', currentEAN);
+  formData.append('status', 'ready');
+  await sendFormData(formData, 'Producto enviado con éxito a Open Food Facts.');
+}
+
+async function sendFormData(formData, successTxt) {
+  document.getElementById('loading-3').classList.remove('hidden');
+  document.getElementById('btnSubmit').disabled = true;
+
+  try {
+    const res = await fetch('/api/opf/create', { method: 'POST', body: formData });
+    const data = await res.json();
+    if (res.ok) {
+      document.getElementById('successMessage').textContent = successTxt;
+      goToStep(4);
+    } else {
+      throw new Error(data.error || 'Error al procesar la solicitud.');
+    }
+  } catch (err) {
+    showError(3, err.message);
+  } finally {
+    document.getElementById('loading-3').classList.add('hidden');
+    document.getElementById('btnSubmit').disabled = false;
+  }
+}
+
+function showError(step, msg) {
+  const el = document.getElementById(`error-${step}`);
+  el.textContent = msg;
+  el.classList.remove('hidden');
+}
+
+// ==========================================
+// LÓGICA DE LAS COLAS DE VERIFICACIÓN (ADMIN)
+// ==========================================
+
+async function accionVerif(id, accion) {
+  if (!confirm(`¿Confirmas ${accion} esta referencia de EAN?`)) return;
+  try {
+    const res  = await fetch('/api/verificaciones/admin', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id_verificacion: id, accion })
     });
-    const data = await res.json();
     if (res.ok) location.reload();
-    else alert(data.error || 'No se pudo actualizar la baja');
-  } catch (e) {
-    alert('No se pudo actualizar la baja');
-  }
+    else alert((await res.json()).error || 'No se pudo actualizar la verificación');
+  } catch { alert('No se pudo conectar'); }
 }
 
 async function accionOpf(id, accion) {
-  const ok = confirm(`¿Confirmas ${accion} este envio a OPF?`);
-  if (!ok) return;
+  if (!confirm(`¿Confirmas ${accion} este envío a Open Food Facts?`)) return;
   const endpoint = accion === 'aprobar' ? '/api/opf/pending/approve' : '/api/opf/pending/reject';
   try {
-    const res = await fetch(endpoint, {
+    const res  = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id_pendiente: id })
     });
-    const data = await res.json();
     if (res.ok) location.reload();
-    else alert(data.error || 'No se pudo procesar el pendiente');
-  } catch (e) {
-    alert('No se pudo procesar el pendiente');
-  }
+    else alert((await res.json()).error || 'No se pudo procesar');
+  } catch { alert('No se pudo conectar'); }
+}
+
+async function accionBaja(id, accion) {
+  const etiquetas = {
+    eliminar:    'eliminar permanentemente este producto maestro',
+    desvincular: 'quitar la referencia sin borrar el producto del catálogo',
+    rechazar:    'ignorar la petición y mantener el producto',
+  };
+  if (!confirm(`¿Confirmas ${etiquetas[accion] || accion}?`)) return;
+  try {
+    const res  = await fetch('/api/verificaciones/producto/admin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id_verificacion: id, accion })
+    });
+    if (res.ok) location.reload();
+    else alert((await res.json()).error || 'No se pudo actualizar la baja');
+  } catch { alert('No se pudo conectar'); }
 }
 </script>
 </body>

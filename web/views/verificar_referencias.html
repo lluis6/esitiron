@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Esítiron — Verificar referencias</title>
+  <script src="/js/theme.js"></script>
+  <link rel="stylesheet" href="/css/main.css">
+  <link rel="stylesheet" href="/css/class/todos_productos.css?v=20260428-2">
+  <link rel="icon" type="image/png" href="/img/logo.jpg">
+  <style>
+    /* ── Asignar EAN: stepper visual ─────────────────────────── */
+    .asignar-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      margin-bottom: 1.5rem;
+      overflow: hidden;
+    }
+    .asignar-header {
+      padding: 1rem 1.25rem;
+      background: var(--surface2);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    .asignar-header-title {
+      font-weight: 700;
+      font-size: 0.95rem;
+      color: var(--text);
+    }
+    .asignar-header-sub {
+      font-size: 0.78rem;
+      color: var(--text3);
+      margin-top: 0.15rem;
+    }
+    .asignar-body {
+      padding: 1.25rem;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.25rem;
+    }
+    @media (max-width: 640px) {
+      .asignar-body { grid-template-columns: 1fr; }
+    }
+
+    /* Columna izquierda: buscar producto */
+    .asignar-col-label {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text3);
+      margin-bottom: 0.5rem;
+    }
+    .asignar-search-wrap {
+      position: relative;
+    }
+    .asignar-search-input {
+      width: 100%;
+      padding: 0.65rem 0.9rem 0.65rem 2.2rem;
+      border: 1px solid var(--border2);
+      border-radius: 10px;
+      font-size: 0.875rem;
+      font-family: inherit;
+      color: var(--text);
+      background: var(--white);
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%239CA3AF' viewBox='0 0 16 16'%3E%3Cpath d='M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.099zm-5.242 1.656a5.5 5.5 0 1 1 0-11 5.5 5.5 0 0 1 0 11z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: 0.65rem center;
+      box-sizing: border-box;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    html.dark .asignar-search-input { background-color: var(--surface); }
+    .asignar-search-input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(16,185,129,0.12);
+    }
+    .asignar-dropdown {
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0; right: 0;
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+      z-index: 50;
+      max-height: 220px;
+      overflow-y: auto;
+    }
+    html.dark .asignar-dropdown { background: var(--surface); }
+    .asignar-dropdown-item {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.6rem 0.85rem;
+      cursor: pointer;
+      transition: background 0.15s;
+      font-size: 0.875rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .asignar-dropdown-item:last-child { border-bottom: none; }
+    .asignar-dropdown-item:hover { background: var(--surface2); }
+    .asignar-dropdown-item img {
+      width: 32px; height: 32px;
+      object-fit: contain;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: white;
+      flex-shrink: 0;
+    }
+    .asignar-dropdown-item .adi-name { font-weight: 600; color: var(--text); }
+    .asignar-dropdown-item .adi-brand { font-size: 0.75rem; color: var(--text3); }
+
+    /* Producto seleccionado */
+    .asignar-selected {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.6rem 0.85rem;
+      background: rgba(16,185,129,0.07);
+      border: 1px solid rgba(16,185,129,0.25);
+      border-radius: 10px;
+      margin-top: 0.5rem;
+    }
+    .asignar-selected img {
+      width: 36px; height: 36px;
+      object-fit: contain;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: white;
+      flex-shrink: 0;
+    }
+    .asignar-selected-name { font-weight: 700; font-size: 0.875rem; color: var(--text); }
+    .asignar-selected-brand { font-size: 0.75rem; color: var(--text3); }
+    .asignar-selected-clear {
+      margin-left: auto;
+      background: none;
+      border: none;
+      color: var(--text3);
+      cursor: pointer;
+      font-size: 1rem;
+      flex-shrink: 0;
+      transition: color 0.15s;
+    }
+    .asignar-selected-clear:hover { color: var(--red); }
+
+    /* Columna derecha: EAN + OPF */
+    .asignar-ean-row {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+    }
+    .asignar-ean-input {
+      flex: 1;
+      padding: 0.65rem 0.9rem;
+      border: 1px solid var(--border2);
+      border-radius: 10px;
+      font-size: 0.9rem;
+      font-family: inherit;
+      color: var(--text);
+      background: var(--white);
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    html.dark .asignar-ean-input { background: var(--surface); }
+    .asignar-ean-input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(16,185,129,0.12);
+    }
+
+    /* Resultado OPF */
+    .opf-result {
+      margin-top: 0.75rem;
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+    .opf-result-found {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.7rem 0.85rem;
+      background: rgba(16,185,129,0.06);
+      border-color: rgba(16,185,129,0.25);
+    }
+    .opf-result-not-found {
+      padding: 0.7rem 0.85rem;
+      background: rgba(245,158,11,0.06);
+      border-color: rgba(245,158,11,0.25);
+      font-size: 0.82rem;
+      color: #d97706;
+    }
+    .opf-result img {
+      width: 36px; height: 36px;
+      object-fit: contain;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: white;
+      flex-shrink: 0;
+    }
+    .opf-result-name { font-weight: 700; font-size: 0.85rem; color: var(--text); }
+    .opf-result-brand { font-size: 0.75rem; color: var(--text3); }
+    .opf-found-badge {
+      margin-left: auto;
+      font-size: 0.7rem;
+      font-weight: 700;
+      color: #059669;
+      background: rgba(16,185,129,0.12);
+      border: 1px solid rgba(16,185,129,0.3);
+      padding: 2px 8px;
+      border-radius: 20px;
+      white-space: nowrap;
+    }
+
+    /* Status text */
+    .asignar-status {
+      font-size: 0.78rem;
+      margin-top: 0.5rem;
+      color: var(--text3);
+      min-height: 1.2em;
+    }
+    .asignar-status.ok { color: #059669; }
+    .asignar-status.error { color: var(--red); }
+    .asignar-status.loading { color: var(--accent); }
+    .asignar-status.warn { color: #d97706; }
+
+    /* Footer acción */
+    .asignar-footer {
+      padding: 1rem 1.25rem;
+      border-top: 1px solid var(--border);
+      background: var(--surface2);
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+    .btn-primary-sm {
+      padding: 0.55rem 1.1rem;
+      background: var(--accent);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn-primary-sm:hover { background: var(--accent-hv); }
+    .btn-primary-sm:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* ── Tablas de verificación ───────────────────────── */
+    .verif-section-title {
+      font-size: 0.78rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--text3);
+      margin: 1.75rem 0 0.6rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .verif-section-title::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+    .verif-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    .verif-row img {
+      width: 40px; height: 40px;
+      object-fit: contain;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: white;
+    }
+    .badge-mini {
+      font-size: 0.72rem;
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--text2);
+      font-family: monospace;
+    }
+    .count-pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 20px;
+      height: 20px;
+      padding: 0 6px;
+      border-radius: 999px;
+      background: var(--accent);
+      color: white;
+      font-size: 0.68rem;
+      font-weight: 700;
+    }
+    .count-pill.warn { background: #d97706; }
+    .count-pill.red  { background: var(--red); }
+  </style>
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="nav-links">
+    <a href="/dashboard" class="nav-link">📊 Dashboard</a>
+    <a href="/tiquets"   class="nav-link">🧾 Tiquets</a>
+    <a href="/productos" class="nav-link active">🛍️ Productos</a>
+    <a href="/grupos"    class="nav-link">👥 Grupos</a>
+  </div>
+  <div class="nav-right">
+    <div class="user-menu-wrap" id="userMenuWrap">
+      <div class="nav-user" id="userTrigger" onclick="toggleMenu()">
+        {% if avatar_url %}
+          <img src="{{ avatar_url }}" class="avatar" style="object-fit:cover;" alt="avatar">
+        {% else %}
+          <div class="avatar">{{ usuario[0] | upper }}</div>
+        {% endif %}
+        <span class="nav-username">{{ usuario }}</span>
+      </div>
+      <div class="user-dropdown" id="userDropdown">
+        <div class="ud-header">
+          <div class="ud-name">{{ usuario }}</div>
+          <div class="ud-email">{{ usuario_email }}</div>
+        </div>
+        <a href="/perfil" class="ud-item">👤 Mi perfil</a>
+        <div class="ud-divider"></div>
+        <a href="/logout" class="ud-item danger">⏻ Cerrar sesion</a>
+      </div>
+    </div>
+    <button class="theme-toggle" id="theme-toggle" title="Cambiar tema">
+      <span id="icon-sun">☀️</span>
+      <span id="icon-moon" style="display:none">🌙</span>
+    </button>
+  </div>
+</nav>
+
+<main class="main">
+  <div class="page-header" style="display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap;">
+    <div>
+      <h1 class="page-title">Verificar referencias</h1>
+      <p class="page-subtitle">Asigna EANs a productos y revisa las verificaciones pendientes.</p>
+    </div>
+    <a href="/productos" class="btn-clear-filters" style="display:inline-flex;">← Volver a productos</a>
+  </div>
+
+  {% if messages and messages.length > 0 %}
+  <div class="flashes">
+    {% for msg in messages %}
+    <div class="flash {{ msg[0] }}">{{ msg[1] }}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <!-- ══ BLOQUE 1: Asignar EAN a producto del catálogo ══════════════════ -->
+  <div class="asignar-card">
+    <div class="asignar-header">
+      <span style="font-size:1.3rem;">🔗</span>
+      <div>
+        <div class="asignar-header-title">Asignar EAN a un producto</div>
+        <div class="asignar-header-sub">Busca el producto en tu catálogo, introduce el EAN y comprueba si existe en Open Food Facts antes de vincularlo.</div>
+      </div>
+    </div>
+
+    <div class="asignar-body">
+
+      <!-- Col izq: buscar producto del catálogo -->
+      <div>
+        <div class="asignar-col-label">1 · Busca el producto</div>
+        <div class="asignar-search-wrap" id="prodSearchWrap">
+          <input
+            type="text"
+            id="prodSearchInput"
+            class="asignar-search-input"
+            placeholder="Nombre o marca del producto..."
+            oninput="buscarProductoCatalogo(this.value)"
+            autocomplete="off">
+          <div class="asignar-dropdown hidden" id="prodDropdown"></div>
+        </div>
+        <div class="hidden" id="prodSelectedWrap">
+          <!-- se rellena por JS -->
+        </div>
+      </div>
+
+      <!-- Col der: EAN + lookup OPF -->
+      <div>
+        <div class="asignar-col-label">2 · Introduce el EAN y comprueba en OPF</div>
+        <div class="asignar-ean-row">
+          <input
+            type="text"
+            id="eanInput"
+            class="asignar-ean-input"
+            placeholder="EAN / UPC (solo números)"
+            maxlength="14"
+            inputmode="numeric">
+          <button class="btn-accion btn-ean" type="button" onclick="lookupOPF()">🔍 Buscar</button>
+        </div>
+        <div class="asignar-status" id="opfStatus"></div>
+        <div class="hidden" id="opfResultWrap"></div>
+      </div>
+    </div>
+
+    <div class="asignar-footer">
+      <button class="btn-primary-sm" id="btnVincular" disabled onclick="confirmarVincular()">
+        ✅ Vincular producto
+      </button>
+      <span style="font-size:0.78rem; color:var(--text3);" id="footerHint">
+        Selecciona un producto y busca el EAN para continuar.
+      </span>
+    </div>
+  </div>
+  <!-- fin bloque 1 -->
+
+
+  <!-- ══ BLOQUE 2: Verificaciones de código de barras pendientes ════════ -->
+  <div class="verif-section-title">
+    Verificaciones de código de barras
+    {% if pendientes and pendientes.length > 0 %}
+      <span class="count-pill warn">{{ pendientes | length }}</span>
+    {% endif %}
+  </div>
+
+  <div class="card table-container">
+    <table>
+      <thead>
+        <tr>
+          <th>Producto</th>
+          <th>Código</th>
+          <th>Votos</th>
+          <th>Creado</th>
+          <th>Acciones</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for v in pendientes %}
+        <tr class="verif-row">
+          <td>
+            <div style="display:flex; align-items:center; gap:10px;">
+              {% if v.foto_url %}
+                <img src="{{ v.foto_url }}" alt="">
+              {% endif %}
+              <div>
+                <div style="font-weight:700; font-size:0.95rem; color:var(--text);">{{ v.nombre }}</div>
+                {% if v.marca %}
+                  <small style="color:var(--text2); font-size:0.78rem;">{{ v.marca | lower }}</small>
+                {% endif %}
+              </div>
+            </div>
+          </td>
+          <td><span class="badge-mini">{{ v.codigo_barras }}</span></td>
+          <td><span class="badge-mini">{{ v.votos_si }} ✓ / {{ v.votos_no }} ✗</span></td>
+          <td style="font-size:0.82rem; color:var(--text2);">{{ v.creado_en | formatDate }}</td>
+          <td>
+            <div class="verif-actions">
+              <button class="btn-accion" onclick="accionVerif({{ v.id }}, 'aprobar')">✅ Aprobar</button>
+              <button class="btn-accion" onclick="accionVerif({{ v.id }}, 'rechazar')">✗ Rechazar</button>
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="5" style="text-align:center; padding:2.5rem; color:var(--text3);">
+            No hay verificaciones pendientes.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+
+  <!-- ══ BLOQUE 3: Envíos a OPF pendientes de revisión admin ═══════════ -->
+  <div class="verif-section-title">
+    Envíos a Open Food Facts
+    {% if pendientes_opf and pendientes_opf.length > 0 %}
+      <span class="count-pill">{{ pendientes_opf | length }}</span>
+    {% endif %}
+  </div>
+
+  <div class="card table-container">
+    <table>
+      <thead>
+        <tr>
+          <th>Producto</th>
+          <th>EAN</th>
+          <th>Solicitado por</th>
+          <th>Creado</th>
+          <th>Acciones</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in pendientes_opf %}
+        <tr class="verif-row">
+          <td>
+            <div>
+              <div style="font-weight:700; font-size:0.95rem; color:var(--text);">{{ p.nombre }}</div>
+              {% if p.marca %}
+                <small style="color:var(--text2); font-size:0.78rem;">{{ p.marca | lower }}</small>
+              {% endif %}
+              {% if p.foto_path %}
+                <small style="color:var(--text3); font-size:0.72rem; display:block;">📷 Foto subida</small>
+              {% endif %}
+            </div>
+          </td>
+          <td><span class="badge-mini">{{ p.ean }}</span></td>
+          <td><span class="badge-mini">{{ p.usuario }}</span></td>
+          <td style="font-size:0.82rem; color:var(--text2);">{{ p.creado_en | formatDate }}</td>
+          <td>
+            <div class="verif-actions">
+              <button class="btn-accion" onclick="accionOpf({{ p.id }}, 'aprobar')">✅ Aprobar</button>
+              <button class="btn-accion" onclick="accionOpf({{ p.id }}, 'rechazar')">✗ Rechazar</button>
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="5" style="text-align:center; padding:2.5rem; color:var(--text3);">
+            No hay productos OPF pendientes.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+
+  <!-- ══ BLOQUE 4: Solicitudes de baja ═════════════════════════════════ -->
+  <div class="verif-section-title">
+    Solicitudes de baja
+    {% if pendientes_baja and pendientes_baja.length > 0 %}
+      <span class="count-pill red">{{ pendientes_baja | length }}</span>
+    {% endif %}
+  </div>
+
+  <div class="card table-container" style="margin-bottom: 2rem;">
+    <table>
+      <thead>
+        <tr>
+          <th>Producto</th>
+          <th>Motivo</th>
+          <th>Creado</th>
+          <th>Acciones</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for v in pendientes_baja %}
+        <tr class="verif-row">
+          <td>
+            <div style="display:flex; align-items:center; gap:10px;">
+              {% if v.foto_url %}
+                <img src="{{ v.foto_url }}" alt="">
+              {% endif %}
+              <div>
+                <div style="font-weight:700; font-size:0.95rem; color:var(--text);">{{ v.nombre }}</div>
+                {% if v.marca %}
+                  <small style="color:var(--text2); font-size:0.78rem;">{{ v.marca | lower }}</small>
+                {% endif %}
+              </div>
+            </div>
+          </td>
+          <td><span class="badge-mini">{{ v.motivo or 'Sin motivo' }}</span></td>
+          <td style="font-size:0.82rem; color:var(--text2);">{{ v.creado_en | formatDate }}</td>
+          <td>
+            <div class="verif-actions">
+              <button class="btn-accion" onclick="accionBaja({{ v.id }}, 'desvincular')">🔗 Quitar referencia</button>
+              <button class="btn-accion" onclick="accionBaja({{ v.id }}, 'eliminar')">🗑️ Eliminar</button>
+              <button class="btn-accion" onclick="accionBaja({{ v.id }}, 'rechazar')">↩️ Mantener</button>
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="4" style="text-align:center; padding:2.5rem; color:var(--text3);">
+            No hay bajas pendientes.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+</main>
+
+<script>
+// ── Menú usuario ──────────────────────────────────────────────
+function toggleMenu() { document.getElementById('userDropdown').classList.toggle('open'); }
+document.addEventListener('click', e => {
+  const w = document.getElementById('userMenuWrap');
+  if (w && !w.contains(e.target)) document.getElementById('userDropdown').classList.remove('open');
+});
+
+// ══════════════════════════════════════════════════════════════
+// BLOQUE 1 — Asignar EAN a producto
+// ══════════════════════════════════════════════════════════════
+
+let selectedProduct = null;   // { id, nombre, marca, foto_url }
+let opfProduct      = null;   // resultado de OPF (o null si no encontrado)
+let opfEan          = null;   // EAN que se buscó
+let searchTimer     = null;
+
+const PLACEHOLDER_IMG = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 48 48'%3E%3Crect width='48' height='48' rx='8' fill='%23f3f4f6'/%3E%3Ctext x='50%25' y='54%25' dominant-baseline='middle' text-anchor='middle' font-size='22' font-family='sans-serif'%3E🛒%3C/text%3E%3C/svg%3E`;
+
+// ── Buscar producto en catálogo ───────────────────────────────
+function buscarProductoCatalogo(q) {
+  clearTimeout(searchTimer);
+  const dropdown = document.getElementById('prodDropdown');
+  if (q.length < 2) { dropdown.classList.add('hidden'); return; }
+  searchTimer = setTimeout(async () => {
+    try {
+      const res  = await fetch(`/api/maestros/buscar?q=${encodeURIComponent(q)}`);
+      const data = await res.json();
+      renderDropdown(Array.isArray(data) ? data :[]);
+    } catch { dropdown.classList.add('hidden'); }
+  }, 280);
+}
+
+function renderDropdown(items) {
+  const dropdown = document.getElementById('prodDropdown');
+  if (!items.length) { dropdown.classList.add('hidden'); return; }
+
+  dropdown.innerHTML = items.slice(0, 8).map(p => `
+    <div class="asignar-dropdown-item" onclick="seleccionarProducto(${JSON.stringify(p).replace(/"/g, '&quot;')})">
+      <img src="${p.foto_url || PLACEHOLDER_IMG}" onerror="this.src='${PLACEHOLDER_IMG}'" alt="">
+      <div>
+        <div class="adi-name">${p.nombre || '—'}</div>
+        <div class="adi-brand">${p.marca || ''}</div>
+      </div>
+    </div>`).join('');
+  dropdown.classList.remove('hidden');
+}
+
+function seleccionarProducto(p) {
+  selectedProduct = p;
+  document.getElementById('prodDropdown').classList.add('hidden');
+  document.getElementById('prodSearchInput').value = '';
+  document.getElementById('prodSearchInput').style.display = 'none';
+
+  const wrap = document.getElementById('prodSelectedWrap');
+  wrap.innerHTML = `
+    <div class="asignar-selected">
+      <img src="${p.foto_url || PLACEHOLDER_IMG}" onerror="this.src='${PLACEHOLDER_IMG}'" alt="">
+      <div>
+        <div class="asignar-selected-name">${p.nombre}</div>
+        <div class="asignar-selected-brand">${p.marca || ''}</div>
+      </div>
+      <button class="asignar-selected-clear" onclick="limpiarProducto()" title="Cambiar producto">✕</button>
+    </div>`;
+  wrap.classList.remove('hidden');
+  actualizarBoton();
+}
+
+function limpiarProducto() {
+  selectedProduct = null;
+  document.getElementById('prodSearchInput').style.display = '';
+  document.getElementById('prodSearchInput').value = '';
+  document.getElementById('prodSelectedWrap').classList.add('hidden');
+  actualizarBoton();
+}
+
+// ── Lookup OPF ────────────────────────────────────────────────
+async function lookupOPF() {
+  const raw = document.getElementById('eanInput').value.trim();
+  const ean = raw.replace(/\D/g, '');
+  if (ean.length < 8) {
+    setOpfStatus('Introduce un código válido (8-14 dígitos).', 'error');
+    return;
+  }
+
+  opfProduct = null;
+  opfEan     = ean;
+  document.getElementById('opfResultWrap').classList.add('hidden');
+  setOpfStatus('Consultando Open Food Facts...', 'loading');
+
+  try {
+    const res  = await fetch(`/api/opf/lookup/${ean}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Error OPF');
+
+    if (data.found) {
+      opfProduct = {
+        ean,
+        nombre:    data.product.product_name || '',
+        marca:     data.product.brands || '',
+        image_url: data.product.image_url || ''
+      };
+      renderOpfFound(opfProduct);
+      setOpfStatus('✅ Encontrado en Open Food Facts.', 'ok');
+    } else {
+      renderOpfNotFound(ean);
+      setOpfStatus('⚠️ No existe en OPF todavía.', 'warn');
+    }
+    actualizarBoton();
+  } catch (e) {
+    setOpfStatus(e.message || 'No se pudo consultar OPF.', 'error');
+  }
+}
+
+function renderOpfFound(p) {
+  const wrap = document.getElementById('opfResultWrap');
+  const img  = p.image_url ? `<img src="${p.image_url}" onerror="this.src='${PLACEHOLDER_IMG}'" alt="">` : `<img src="${PLACEHOLDER_IMG}" alt="">`;
+  wrap.innerHTML = `
+    <div class="opf-result">
+      <div class="opf-result-found">
+        ${img}
+        <div>
+          <div class="opf-result-name">${p.nombre || 'Sin nombre'}</div>
+          <div class="opf-result-brand">${p.marca || '—'}</div>
+        </div>
+        <span class="opf-found-badge">✓ En OPF</span>
+      </div>
+    </div>`;
+  wrap.classList.remove('hidden');
+}
+
+function renderOpfNotFound(ean) {
+  const wrap = document.getElementById('opfResultWrap');
+  wrap.innerHTML = `
+    <div class="opf-result">
+      <div class="opf-result-not-found">
+        ⚠️ EAN <strong>${ean}</strong> no encontrado en Open Food Facts.<br>
+        <span style="font-size:0.75rem; color:var(--text3);">Se creará como referencia pendiente de revisión.</span>
+      </div>
+    </div>`;
+  wrap.classList.remove('hidden');
+}
+
+function setOpfStatus(msg, tone) {
+  const el = document.getElementById('opfStatus');
+  el.textContent = msg;
+  el.className   = `asignar-status ${tone || ''}`.trim();
+}
+
+// ── Estado del botón vincular ─────────────────────────────────
+function actualizarBoton() {
+  const btn  = document.getElementById('btnVincular');
+  const hint = document.getElementById('footerHint');
+  const listo = selectedProduct && opfEan;
+
+  btn.disabled = !listo;
+
+  if (!selectedProduct && !opfEan) {
+    hint.textContent = 'Selecciona un producto y busca el EAN para continuar.';
+  } else if (!selectedProduct) {
+    hint.textContent = 'Falta seleccionar el producto del catálogo.';
+  } else if (!opfEan) {
+    hint.textContent = 'Falta buscar el EAN en Open Food Facts.';
+  } else if (opfProduct) {
+    hint.textContent = `Vinculará "${selectedProduct.nombre}" con EAN ${opfEan} (existe en OPF).`;
+  } else {
+    hint.textContent = `Vinculará "${selectedProduct.nombre}" con EAN ${opfEan} (pendiente de verificación).`;
+  }
+}
+
+// ── Confirmar y vincular ──────────────────────────────────────
+async function confirmarVincular() {
+  if (!selectedProduct || !opfEan) return;
+
+  const msg = opfProduct
+    ? `¿Asociar EAN ${opfEan} (${opfProduct.nombre || 'OPF'}) al producto "${selectedProduct.nombre}"?`
+    : `EAN ${opfEan} no existe en OPF. ¿Crear referencia pendiente de revisión para "${selectedProduct.nombre}"?`;
+
+  if (!confirm(msg)) return;
+
+  try {
+    // Mandamos el id del producto que seleccionamos localmente + los datos del EAN y de OPF.
+    // El backend se encarga de crear la asociación.
+    const res = await fetch('/api/verificaciones/admin/crear', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id_producto:    selectedProduct.id,
+        codigo_barras:  opfEan,
+        producto_opf:   opfProduct || null
+      })
+    });
+    
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'No se pudo crear la referencia');
+
+    location.reload();
+  } catch (e) {
+    alert(e.message || 'Error al vincular');
+  }
+}
+
+// Cerrar dropdown al hacer clic fuera
+document.addEventListener('click', e => {
+  const wrap = document.getElementById('prodSearchWrap');
+  if (wrap && !wrap.contains(e.target)) {
+    document.getElementById('prodDropdown').classList.add('hidden');
+  }
+});
+
+// ══════════════════════════════════════════════════════════════
+// BLOQUE 2-4 — Acciones de las tablas existentes
+// ══════════════════════════════════════════════════════════════
+
+async function accionVerif(id, accion) {
+  if (!confirm(`¿Confirmas ${accion} esta referencia?`)) return;
+  try {
+    const res  = await fetch('/api/verificaciones/admin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id_verificacion: id, accion })
+    });
+    const data = await res.json();
+    if (res.ok) location.reload();
+    else alert(data.error || 'No se pudo actualizar la verificacion');
+  } catch { alert('No se pudo actualizar la verificacion'); }
+}
+
+async function accionOpf(id, accion) {
+  if (!confirm(`¿Confirmas ${accion} este envío a OPF?`)) return;
+  const endpoint = accion === 'aprobar' ? '/api/opf/pending/approve' : '/api/opf/pending/reject';
+  try {
+    const res  = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id_pendiente: id })
+    });
+    const data = await res.json();
+    if (res.ok) location.reload();
+    else alert(data.error || 'No se pudo procesar el pendiente');
+  } catch { alert('No se pudo procesar el pendiente'); }
+}
+
+async function accionBaja(id, accion) {
+  const etiquetas = {
+    eliminar:    'eliminar este producto',
+    desvincular: 'quitar la referencia sin borrar el producto',
+    rechazar:    'mantener el producto',
+  };
+  if (!confirm(`¿Confirmas ${etiquetas[accion] || accion}?`)) return;
+  try {
+    const res  = await fetch('/api/verificaciones/producto/admin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id_verificacion: id, accion })
+    });
+    const data = await res.json();
+    if (res.ok) location.reload();
+    else alert(data.error || 'No se pudo actualizar la baja');
+  } catch { alert('No se pudo actualizar la baja'); }
+}
+</script>
+</body>
+</html>
