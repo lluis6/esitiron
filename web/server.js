@@ -1540,6 +1540,54 @@ app.post('/api/verificaciones/producto/admin', auth, adminOnly, async (req, res)
   finally { conn.release(); }
 });
 
+// ── Eliminar una línea de compra ──────────────────────────────
+app.delete('/api/compra/:idCompra', auth, async (req, res) => {
+  const uid      = req.session.usuario.id;
+  const idCompra = parseInt(req.params.idCompra, 10);
+  if (isNaN(idCompra)) return res.status(400).json({ error: 'ID inválido' });
+
+  const conn = await dbPool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    // Verificar que la compra pertenece al usuario y obtener el tiquet
+    const [[compra]] = await conn.execute(
+      `SELECT c.id, c.id_tiquet
+       FROM compras c
+       JOIN tiquets t ON t.id = c.id_tiquet
+       WHERE c.id = ? AND c.id_usuario = ?`,
+      [idCompra, uid]
+    );
+    if (!compra) {
+      await conn.rollback();
+      return res.status(404).json({ error: 'Compra no encontrada' });
+    }
+
+    // Eliminar la línea
+    await conn.execute('DELETE FROM compras WHERE id = ?', [idCompra]);
+
+    // Recalcular y actualizar el total del tiquet
+    const [[{ nuevo_total }]] = await conn.execute(
+      `SELECT COALESCE(SUM(cantidad * precio_unitario), 0) AS nuevo_total
+       FROM compras WHERE id_tiquet = ?`,
+      [compra.id_tiquet]
+    );
+    await conn.execute(
+      'UPDATE tiquets SET total_tiquet = ? WHERE id = ?',
+      [nuevo_total, compra.id_tiquet]
+    );
+
+    await conn.commit();
+    res.json({ success: true, nuevo_total });
+  } catch (e) {
+    await conn.rollback();
+    console.error('[EliminarCompra]', e.message);
+    res.status(500).json({ error: e.message });
+  } finally {
+    conn.release();
+  }
+});
+
 app.post('/api/compra/:idCompra/precio', auth, async (req, res) => {
   const uid         = req.session.usuario.id;
   const idCompra    = parseInt(req.params.idCompra, 10);

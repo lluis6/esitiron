@@ -138,11 +138,11 @@
               </span>
             </td>
             <td class="cell-editable" style="display:none;">
-              <input type="number" 
-                     class="edit-input input-cant" 
+              <input type="number"
+                     class="edit-input input-cant"
                      data-idx="{{ loop.index0 }}"
-                     value="{{ p.cantidad }}" 
-                     step="{{ '0.001' if p.categoria == 'Fruta/Verdura' else '1' }}" 
+                     value="{{ p.cantidad }}"
+                     step="{{ '0.001' if p.categoria == 'Fruta/Verdura' else '1' }}"
                      oninput="recalcularDetalle()">
             </td>
 
@@ -155,9 +155,9 @@
               {% endif %}
             </td>
             <td class="cell-editable" style="display:none;">
-              <input type="text" 
-                     class="edit-input" 
-                     value="{{ p.producto }}" 
+              <input type="text"
+                     class="edit-input"
+                     value="{{ p.producto }}"
                      readonly>
             </td>
 
@@ -191,28 +191,22 @@
               </div>
             </td>
 
-            <!-- Subtotal -->
-            <td class="cell-static right {{ 'price-red' if p.precio < 0 else '' }}"
+            <!-- Subtotal — SOLO cell-static, el valor se actualiza por JS -->
+            <td class="cell-static right {{ 'price-red' if (p.cantidad * p.precio) < 0 else '' }}"
                 id="sub-{{ loop.index0 }}">
               {{ (p.cantidad * p.precio) | format }} €
             </td>
-            <td class="cell-editable right" style="display:none;">
-              <input type="text" 
-                     class="input-subtotal subtotal-input" 
-                     id="subsub-{{ loop.index0 }}"
-                     value="{{ (p.cantidad * p.precio) | format }}" 
-                     readonly 
-                     tabindex="-1">
-            </td>
 
-            <td class="linea-accion col-actions" style="display:none;">
+            <!-- Acción (eliminar) — visible en modo edición -->
+            <td class="col-actions" style="display:none;">
               <button type="button"
                       class="btn-remove-line"
                       title="Quitar producto del tiquet"
                       data-idx="{{ loop.index0 }}"
                       onclick="eliminarFilaDetalle(this)">🗑️</button>
             </td>
-            <td class="linea-accion cell-static">
+            <!-- Acción (eliminar) — visible en modo lectura -->
+            <td class="cell-static linea-accion">
               <button type="button"
                       class="btn-remove-line"
                       title="Quitar producto del tiquet"
@@ -262,7 +256,7 @@ document.addEventListener('click', e => {
 // ── Confirmar eliminación ─────────────────────────────────────
 function abrirConfirm()  { document.getElementById('confirmOverlay').classList.add('visible'); }
 function cerrarConfirm() { document.getElementById('confirmOverlay').classList.remove('visible'); }
-document.addEventListener('keydown', e => { if (e.key === 'Escape') cerrarConfirm(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { cerrarConfirm(); cerrarCompartir(); } });
 document.getElementById('confirmOverlay').addEventListener('click', e => {
   if (e.target === e.currentTarget) cerrarConfirm();
 });
@@ -294,7 +288,6 @@ function toggleEditarPrecios() {
   document.querySelectorAll('.col-actions').forEach(el => el.style.display = modoEdicion ? '' : 'none');
 
   if (modoEdicion) {
-    // Enfocar el primer input disponible
     const primero = document.querySelector('.precio-input');
     if (primero) primero.focus();
   } else {
@@ -312,52 +305,48 @@ function recalcularDetalle() {
   const tablaBody = document.getElementById('tbodyProductos');
   const filas = tablaBody.querySelectorAll('tr');
   let totalGlobal = 0;
-  
+
   filas.forEach((fila, i) => {
     const iCant = fila.querySelector('.input-cant');
     const iPrec = fila.querySelector('.precio-input');
-    
     if (!iCant || !iPrec) return;
 
     const esPeso = esFilaPeso(fila);
     let cantRaw = parseFloat(iCant.value.replace(',', '.')) || 0;
     let cantFinal = esPeso ? cantRaw : Math.round(cantRaw);
-    if (!esPeso && iCant.value !== cantFinal.toString()) {
-      iCant.value = cantFinal;
-    }
+    if (!esPeso && iCant.value !== cantFinal.toString()) iCant.value = cantFinal;
+
     const labelCant = fila.querySelector('.qty-pill');
     if (labelCant) labelCant.textContent = formatCantidad(cantFinal) + (esPeso ? ' kg' : '');
 
-    // Precio
     let prec = parseFloat(iPrec.value.replace(',', '.')) || 0;
     const sub = cantFinal * prec;
-    
-    // Actualizar subtotal
+
+    // Actualizar subtotal editable
     const inputSub = fila.querySelector('.subtotal-input');
-    const txtSub = fila.querySelector(`#sub-${i}`);
-    
     if (inputSub) inputSub.value = sub.toFixed(2);
-    if (txtSub) {
-      txtSub.textContent = sub.toFixed(2) + ' €';
-      if (sub < 0) {
-        txtSub.classList.add('price-red');
-      } else {
-        txtSub.classList.remove('price-red');
-      }
+
+    // Actualizar celda estática de subtotal — preservar cell-static
+    const tdSub = document.getElementById(`sub-${i}`);
+    if (tdSub) {
+      tdSub.textContent = sub.toFixed(2) + ' €';
+      // Añadir/quitar price-red según signo, sin tocar cell-static ni right
+      if (sub < 0) tdSub.classList.add('price-red');
+      else         tdSub.classList.remove('price-red');
     }
-    
+
     totalGlobal += sub;
   });
-  
+
   actualizarTotalDisplay(totalGlobal);
 }
 
 // ── Guardar precio de una fila ────────────────────────────────
 async function guardarPrecio(idx, btnEl) {
-  const fila = [...filas][idx];
-  const idCompra = fila.dataset.idCompra;
-  const cantidad = parseFloat(fila.dataset.cantidad);
-  const input = document.getElementById(`inp-${idx}`);
+  const fila       = [...filas][idx];
+  const idCompra   = fila.dataset.idCompra;
+  const cantidad   = parseFloat(fila.dataset.cantidad);
+  const input      = document.getElementById(`inp-${idx}`);
   const nuevoPrecio = parseFloat(input.value);
 
   if (isNaN(nuevoPrecio)) {
@@ -370,29 +359,35 @@ async function guardarPrecio(idx, btnEl) {
 
   try {
     const res = await fetch(`/api/compra/${idCompra}/precio`, {
-      method: 'POST',
+      method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ precio: nuevoPrecio }),
+      body:    JSON.stringify({ precio: nuevoPrecio }),
     });
     const data = await res.json();
 
     if (res.ok && data.success) {
-      // Actualizar dato guardado
+      // Guardar el nuevo valor en el dataset para que cancelar restaure bien
       fila.dataset.precioOriginal = nuevoPrecio.toFixed(2);
 
-      // Actualizar celda estática
+      // Actualizar texto de la celda estática de precio
       const staticSpan = fila.querySelector('.precio-static');
       const unitSuffix = esFilaPeso(fila) ? ' €/kg' : ' €';
       staticSpan.textContent = nuevoPrecio.toFixed(2) + unitSuffix;
-      staticSpan.className = 'precio-static' + (nuevoPrecio < 0 ? ' price-red' : '');
+      staticSpan.className   = 'precio-static' + (nuevoPrecio < 0 ? ' price-red' : '');
 
-      // Actualizar subtotal
-      const sub = document.getElementById(`sub-${idx}`);
+      // ── FIX: actualizar subtotal preservando cell-static ──
+      // NO sobreescribir .className completo: solo añadir/quitar price-red
+      const tdSub  = document.getElementById(`sub-${idx}`);
       const subtotal = cantidad * nuevoPrecio;
-      sub.textContent = subtotal.toFixed(2) + ' €';
-      sub.className = 'right' + (subtotal < 0 ? ' price-red' : '');
+      if (tdSub) {
+        tdSub.textContent = subtotal.toFixed(2) + ' €';
+        if (subtotal < 0) tdSub.classList.add('price-red');
+        else              tdSub.classList.remove('price-red');
+        // cell-static y right permanecen intactos → la celda se muestra
+        // correctamente al salir del modo edición sin recargar
+      }
 
-      // Actualizar totales
+      // Actualizar totales del header y footer
       actualizarTotalDisplay(parseFloat(data.nuevo_total));
 
       mostrarFeedback(idx, 'ok', '✓ Guardado');
@@ -402,84 +397,76 @@ async function guardarPrecio(idx, btnEl) {
   } catch (e) {
     mostrarFeedback(idx, 'err', 'Error de red');
   } finally {
-    btnEl.disabled = false;
+    btnEl.disabled    = false;
     btnEl.textContent = '✓';
   }
 }
 
 function cancelarEdicion(idx) {
-  const fila = [...filas][idx];
+  const fila  = [...filas][idx];
   const input = document.getElementById(`inp-${idx}`);
   input.value = fila.dataset.precioOriginal;
   ocultarFeedback(idx);
 }
 
 function getIdxFromElement(el) {
-  var tr = el && el.closest ? el.closest('tr') : null;
+  const tr = el && el.closest ? el.closest('tr') : null;
   if (!tr) return -1;
-  var idx = parseInt(tr.dataset.idx, 10);
+  const idx = parseInt(tr.dataset.idx, 10);
   return Number.isNaN(idx) ? -1 : idx;
 }
 
 function guardarPrecioDesdeBtn(btnEl) {
-  var idx = getIdxFromElement(btnEl);
+  const idx = getIdxFromElement(btnEl);
   if (idx < 0) return;
   guardarPrecio(idx, btnEl);
 }
 
 function cancelarDesdeBtn(btnEl) {
-  var idx = getIdxFromElement(btnEl);
+  const idx = getIdxFromElement(btnEl);
   if (idx < 0) return;
   cancelarEdicion(idx);
 }
 
 // Enter para guardar, Escape para cancelar
 function onKeyPrecioDetalle(e, inputEl) {
-  var idx = getIdxFromElement(inputEl);
+  const idx = getIdxFromElement(inputEl);
   if (idx < 0) return;
-
   if (e.key === 'Enter') {
     e.preventDefault();
-    var btnSave = inputEl.closest('.precio-edit-wrap').querySelector('.btn-save-precio');
+    const btnSave = inputEl.closest('.precio-edit-wrap').querySelector('.btn-save-precio');
     guardarPrecio(idx, btnSave);
   }
   if (e.key === 'Escape') cancelarEdicion(idx);
 }
 
-// ── Eliminar fila (en modo edición) ──────────────────────────
+// ── Eliminar fila ─────────────────────────────────────────────
 async function eliminarFilaDetalle(btn) {
-  const idx = parseInt(btn.dataset.idx, 10);
-  const fila = [...filas][idx];
+  const idx      = parseInt(btn.dataset.idx, 10);
+  const fila     = [...filas][idx];
   const idCompra = fila.dataset.idCompra;
 
   if (!confirm('¿Eliminar este producto del tiquet?')) return;
 
   try {
     const res = await fetch(`/api/compra/${idCompra}`, { method: 'DELETE' });
-    if (res.ok) {
-      fila.remove();
-      recalcularDetalle();
-    } else {
-      alert('Error al eliminar.');
-    }
-  } catch (e) {
-    alert('Error de red.');
-  }
+    if (res.ok) { fila.remove(); recalcularDetalle(); }
+    else        { alert('Error al eliminar.'); }
+  } catch { alert('Error de red.'); }
 }
 
-// ── Eliminar compra (compatibilidad con código anterior) ──────
 async function eliminarCompraDesdeBtn(btn) {
   const idx = getIdxFromElement(btn);
   if (idx < 0) return;
-  await eliminarFilaDetalle(btn);
+  await eliminarFilaDetalle(Object.assign(btn, { dataset: { ...btn.dataset, idx } }));
 }
 
-// ── Helpers de feedback e totales ────────────────────────────
+// ── Helpers feedback y totales ────────────────────────────────
 function mostrarFeedback(idx, tipo, msg) {
   const fb = document.getElementById(`fb-${idx}`);
   if (!fb) return;
   fb.textContent = msg;
-  fb.className = 'precio-feedback ' + tipo;
+  fb.className   = 'precio-feedback ' + tipo;
   if (tipo === 'ok') setTimeout(() => ocultarFeedback(idx), 3000);
 }
 
@@ -490,11 +477,7 @@ function ocultarFeedback(idx) {
 
 function actualizarTotalDisplay(nuevoTotal) {
   const fmt = nuevoTotal.toFixed(2) + ' €';
-
-  const totalHeader = document.getElementById('totalDisplay');
-  const totalFooter = document.getElementById('totalFooter');
-
-  [totalHeader, totalFooter].forEach(el => {
+  [document.getElementById('totalDisplay'), document.getElementById('totalFooter')].forEach(el => {
     if (!el) return;
     el.textContent = fmt;
     el.classList.add('updated');
@@ -507,15 +490,12 @@ let gruposCompartir = null;
 
 function escHtml(str) {
   return String(str || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 function setShareStatus(msg, isError) {
-  var el = document.getElementById('shareStatus');
+  const el = document.getElementById('shareStatus');
   if (!el) return;
   el.style.color = isError ? 'var(--red)' : 'var(--text3)';
   el.textContent = msg || '';
@@ -523,24 +503,23 @@ function setShareStatus(msg, isError) {
 
 function cerrarCompartir(ev) {
   if (ev && ev.target !== ev.currentTarget) return;
-  var ov = document.getElementById('shareOverlay');
+  const ov = document.getElementById('shareOverlay');
   if (ov) ov.classList.remove('visible');
   setShareStatus('');
 }
 
 async function abrirCompartir() {
-  var ov = document.getElementById('shareOverlay');
+  const ov = document.getElementById('shareOverlay');
   if (ov) ov.classList.add('visible');
   cargarGruposParaCompartir();
 }
 
 async function safeJson(res) {
-  try { return await res.json(); }
-  catch (e) { return null; }
+  try { return await res.json(); } catch { return null; }
 }
 
 async function cargarGruposParaCompartir() {
-  var list = document.getElementById('shareList');
+  const list = document.getElementById('shareList');
   if (!list) return;
 
   if (gruposCompartir && gruposCompartir.length) {
@@ -552,25 +531,18 @@ async function cargarGruposParaCompartir() {
   setShareStatus('');
 
   try {
-    var res = await fetch('/api/grupos');
-    var data = await safeJson(res);
-    var grupos = Array.isArray(data) ? data : ((data && data.grupos) || []);
-
-    if (!grupos || !grupos.length) {
-      var res2 = await fetch('/api/grupos/mis');
-      var data2 = await safeJson(res2);
-      grupos = Array.isArray(data2) ? data2 : ((data2 && data2.grupos) || []);
-    }
-
-    gruposCompartir = grupos || [];
+    const res    = await fetch('/api/grupos');
+    const data   = await safeJson(res);
+    const grupos = Array.isArray(data) ? data : (data?.grupos || []);
+    gruposCompartir = grupos;
     renderGruposCompartir(gruposCompartir);
-  } catch (e) {
+  } catch {
     list.innerHTML = '<div class="pl-loading" style="color:var(--red);">No se pudieron cargar tus grupos.</div>';
   }
 }
 
 function renderGruposCompartir(grupos) {
-  var list = document.getElementById('shareList');
+  const list = document.getElementById('shareList');
   if (!list) return;
 
   if (!grupos || !grupos.length) {
@@ -578,33 +550,26 @@ function renderGruposCompartir(grupos) {
     return;
   }
 
-  list.innerHTML = grupos.map(function (g) {
-    var id = g.id || g.id_grupo || g.grupo_id || g.uuid;
+  list.innerHTML = grupos.map(g => {
+    const id     = g.id || g.id_grupo || g.grupo_id || g.uuid;
     if (!id) return '';
-
-    var nombreRaw = g.nombre || g.name || 'Grupo';
-    var nombre = escHtml(nombreRaw);
-    var rol = escHtml(g.rol || g.mi_rol || '');
-
-    return (
-      '<button type="button" class="share-item" ' +
-        'data-grupo-id="' + escHtml(String(id)) + '" ' +
-        'data-grupo-nombre="' + nombre + '">' +
-        '<span><strong>' + nombre + '</strong><br><small style="color:var(--text3);">' + rol + '</small></span>' +
-        '<span style="color:var(--accent);font-weight:700;">Compartir →</span>' +
-      '</button>'
-    );
+    const nombre = escHtml(g.nombre || g.name || 'Grupo');
+    const rol    = escHtml(g.rol || g.mi_rol || '');
+    return `<button type="button" class="share-item"
+              data-grupo-id="${escHtml(String(id))}"
+              data-grupo-nombre="${nombre}">
+              <span><strong>${nombre}</strong><br>
+              <small style="color:var(--text3);">${rol}</small></span>
+              <span style="color:var(--accent);font-weight:700;">Compartir →</span>
+            </button>`;
   }).join('');
 }
 
 function compartirEnGrupoDesdeBtn(btnEl) {
   if (!btnEl) return;
-  var grupoId = btnEl.dataset.grupoId;
-  var nombreGrupo = btnEl.dataset.grupoNombre || 'Grupo';
-  if (!grupoId) {
-    setShareStatus('No se encontró el identificador del grupo.', true);
-    return;
-  }
+  const grupoId     = btnEl.dataset.grupoId;
+  const nombreGrupo = btnEl.dataset.grupoNombre || 'Grupo';
+  if (!grupoId) { setShareStatus('No se encontró el identificador del grupo.', true); return; }
   compartirEnGrupo(grupoId, nombreGrupo, btnEl);
 }
 
@@ -613,85 +578,64 @@ async function compartirEnGrupo(grupoId, nombreGrupo, btnEl) {
   if (btnEl) btnEl.disabled = true;
   setShareStatus('Compartiendo...');
 
-  var gid = encodeURIComponent(String(grupoId));
-  var endpoints = [
+  const gid = encodeURIComponent(String(grupoId));
+  const endpoints = [
     '/api/grupos/' + gid + '/tiquets/compartir',
     '/api/grupos/' + gid + '/tiquets',
-    '/api/tiquets/' + encodeURIComponent(TIQUET_ID) + '/compartir'
+    '/api/tiquets/' + encodeURIComponent(TIQUET_ID) + '/compartir',
   ];
-
-  var payloads = [
+  const payloads = [
     { tiquet_uuid: TIQUET_ID, grupo_id: grupoId },
     { ticket_uuid: TIQUET_ID, grupo_id: grupoId },
     { uuid_tiquet: TIQUET_ID, grupo_id: grupoId },
-    { tiquet_id: TIQUET_ID, grupo_id: grupoId },
-    { grupo_id: grupoId }
+    { tiquet_id:   TIQUET_ID, grupo_id: grupoId },
+    { grupo_id: grupoId },
   ];
 
   try {
-    var ok = false;
-    var errMsg = '';
-
-    for (var i = 0; i < endpoints.length && !ok; i++) {
-      for (var j = 0; j < payloads.length && !ok; j++) {
-        var res = await fetch(endpoints[i], {
-          method: 'POST',
+    let ok = false; let errMsg = '';
+    outer: for (const ep of endpoints) {
+      for (const pl of payloads) {
+        const res = await fetch(ep, {
+          method:  'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payloads[j])
+          body:    JSON.stringify(pl),
         });
-
-        if (res.ok) {
-          ok = true;
-          break;
-        }
-
-        try {
-          var d = await res.json();
-          if (d && d.error) errMsg = d.error;
-        } catch (e) {}
+        if (res.ok) { ok = true; break outer; }
+        try { const d = await res.json(); if (d?.error) errMsg = d.error; } catch {}
       }
     }
-
     if (ok) {
       setShareStatus('✅ Tiquet compartido en "' + nombreGrupo + '"');
-      setTimeout(function () { cerrarCompartir(); }, 700);
+      setTimeout(() => cerrarCompartir(), 700);
     } else {
       setShareStatus(errMsg || 'No se pudo compartir el tiquet.', true);
     }
-  } catch (e) {
+  } catch {
     setShareStatus('Error de conexión al compartir.', true);
   } finally {
     if (btnEl) btnEl.disabled = false;
   }
 }
 
-document.addEventListener('DOMContentLoaded', function () {
-  var btnShare = document.getElementById('btnShareGroup');
+document.addEventListener('DOMContentLoaded', () => {
+  const btnShare = document.getElementById('btnShareGroup');
   if (btnShare) btnShare.addEventListener('click', abrirCompartir);
 
-  var shareList = document.getElementById('shareList');
+  const shareList = document.getElementById('shareList');
   if (shareList) {
-    shareList.addEventListener('click', function (ev) {
-      var btn = ev.target.closest('.share-item');
-      if (!btn) return;
-      compartirEnGrupoDesdeBtn(btn);
+    shareList.addEventListener('click', e => {
+      const btn = e.target.closest('.share-item');
+      if (btn) compartirEnGrupoDesdeBtn(btn);
     });
   }
 
-  // Compatibilidad con handlers inline
+  // Compatibilidad con handlers inline existentes
   Object.assign(window, {
-    toggleMenu,
-    abrirConfirm,
-    cerrarConfirm,
-    ejecutarEliminar,
-    toggleEditarPrecios,
-    guardarPrecioDesdeBtn,
-    cancelarDesdeBtn,
-    onKeyPrecioDetalle,
-    cerrarCompartir,
-    eliminarCompraDesdeBtn,
-    eliminarFilaDetalle,
-    recalcularDetalle,
+    toggleMenu, abrirConfirm, cerrarConfirm, ejecutarEliminar,
+    toggleEditarPrecios, guardarPrecioDesdeBtn, cancelarDesdeBtn,
+    onKeyPrecioDetalle, cerrarCompartir, eliminarCompraDesdeBtn,
+    eliminarFilaDetalle, recalcularDetalle,
   });
 });
 </script>

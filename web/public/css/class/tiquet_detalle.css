@@ -51,6 +51,39 @@
 }
 .btn-share-group:hover { background: rgba(16,185,129,0.08); }
 
+/* ── Botón editar precios ────────────────────────────────────── */
+/*
+ * Clase usada en: <button class="btn-editar-precios" id="btnEditarPrecios">
+ * Estado normal  → aspecto neutro (borde + fondo superficie)
+ * Estado .activo → fondo accent sólido, igual que .btn-toggle-edit.active
+ */
+.btn-editar-precios {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 0.5rem 1rem; border-radius: var(--radius-sm, 8px);
+  font-size: 0.85rem; font-weight: 600; cursor: pointer;
+  border: 1.5px solid var(--border2);
+  background: var(--surface2);
+  color: var(--text2);
+  font-family: inherit;
+  transition: border-color 0.2s, background-color 0.2s, color 0.2s, box-shadow 0.2s;
+}
+.btn-editar-precios:hover {
+  border-color: var(--accent);
+  background: var(--accent-lt);
+  color: var(--accent);
+}
+/* Activado (modo edición ON) */
+.btn-editar-precios.activo {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+  box-shadow: 0 2px 8px rgba(16,185,129,0.25);
+}
+.btn-editar-precios.activo:hover {
+  background: var(--accent-hv);
+  border-color: var(--accent-hv);
+}
+
 /* ── Botón eliminar tiquet ───────────────────────────────────── */
 .btn-delete-tiquet {
   display: inline-flex; align-items: center; gap: 0.4rem;
@@ -62,7 +95,7 @@
 }
 .btn-delete-tiquet:hover { background: var(--red); color: #fff; border-color: var(--red); }
 
-/* ── Botón editar (idéntico al de tiquet_preview) ───────────── */
+/* ── Botón editar genérico (idéntico al de tiquet_preview) ──── */
 .btn-toggle-edit {
   display: inline-flex; align-items: center; gap: 0.5rem;
   padding: 0.5rem 1.1rem; border-radius: var(--radius-sm);
@@ -76,6 +109,16 @@
 /* ── Banner modo edición activo ─────────────────────────────── */
 .edit-hint-banner { margin-bottom: 1rem; }
 
+/* ── Hint inline en la cabecera de la tabla ─────────────────── */
+.edit-hint {
+  display: none;
+  font-size: 0.75rem; color: var(--accent); font-weight: 600;
+  padding: 4px 10px;
+  background: rgba(99,102,241,0.08);
+  border-radius: 20px; margin-left: 8px;
+}
+body.edit-precios .edit-hint { display: inline; }
+
 /* ── Inputs de edición (mismos estilos que tiquet_preview) ──── */
 .edit-input {
   width: 100%; padding: 0.55rem 0.75rem;
@@ -86,8 +129,8 @@
 }
 .edit-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(16,185,129,0.1); }
 
-.edit-input.input-cant { width: 62px; text-align: right; }
-.edit-input.input-num  { width: 80px;  text-align: right; }
+.edit-input.input-cant  { width: 62px; text-align: right; }
+.edit-input.input-num   { width: 80px; text-align: right; }
 .edit-input.precio-input { width: 80px; text-align: right; }
 
 .input-subtotal {
@@ -102,36 +145,74 @@
   background-color: rgba(0,0,0,0.05) !important;
 }
 
+/* ── Wrap precio-editable ────────────────────────────────────── */
+.precio-edit-wrap {
+  display: flex; align-items: center; gap: 4px;
+}
+
 /* ── Visibilidad de celdas (sistema unificado con tiquet_preview) */
 .col-actions,
 .cell-editable { display: none !important; }
 
-body.edit-mode .col-actions   { display: table-cell !important; }
-body.edit-mode .cell-editable { display: table-cell !important; }
-body.edit-mode .cell-static   { display: none    !important; }
+body.edit-precios .col-actions   { display: table-cell !important; }
+body.edit-precios .cell-editable { display: table-cell !important; }
+body.edit-precios .cell-static   { display: none    !important; }
 
 /* ── Acciones por fila (guardar / cancelar / eliminar) ────────── */
 .row-actions-wrap {
   display: flex; gap: 4px; align-items: center; justify-content: flex-end;
 }
 
+.btn-save-precio,
 .btn-save-row {
   width: 28px; height: 28px; border: none; border-radius: 6px;
   background: #10b981; color: #fff; font-size: 0.85rem;
   cursor: pointer; display: flex; align-items: center; justify-content: center;
   flex-shrink: 0; transition: background 0.15s;
 }
+.btn-save-precio:hover,
 .btn-save-row:hover    { background: #059669; }
+.btn-save-precio:disabled,
 .btn-save-row:disabled { background: var(--text3); cursor: not-allowed; }
 
+.btn-cancel-precio,
 .btn-cancel-row {
   width: 28px; height: 28px; border: none; border-radius: 6px;
   background: var(--surface2); color: var(--text2); font-size: 0.9rem;
   cursor: pointer; display: flex; align-items: center; justify-content: center;
   flex-shrink: 0; transition: all 0.15s;
 }
+.btn-cancel-precio:hover,
 .btn-cancel-row:hover { background: var(--border); color: var(--text); }
 
+/* ── Botón eliminar línea (icono papelera dentro de cada fila) ── */
+/*
+ * Clase usada en:
+ *   <button class="btn-remove-line" onclick="eliminarFilaDetalle(this)">🗑️</button>
+ *   <button class="btn-remove-line" onclick="eliminarCompraDesdeBtn(this)">🗑️</button>
+ */
+.btn-remove-line {
+  width: 30px; height: 30px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs, 6px);
+  background: transparent;
+  color: var(--text3);
+  font-size: 0.9rem;
+  cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  transition: background-color 0.15s, color 0.15s, border-color 0.15s;
+  font-family: inherit;
+  padding: 0;
+  line-height: 1;
+}
+.btn-remove-line:hover {
+  background: var(--red-lt);
+  color: var(--red);
+  border-color: rgba(248,113,113,0.4);
+}
+
+/* Alias legacy por si algún template usa .btn-del-row */
 .btn-del-row {
   width: 28px; height: 28px; border: none; border-radius: 6px;
   background: none; color: var(--text3); font-size: 0.85rem;
@@ -154,14 +235,15 @@ body.edit-mode .cell-static   { display: none    !important; }
 
 /* ── Filas de descuento ──────────────────────────────────────── */
 tr.descuento td { background: rgba(239,68,68,0.04); }
-.descuento-label {
+.descuento-label,
+.descuento-name {
   display: inline-flex; align-items: center; gap: 0.3rem;
   font-size: 0.78rem; font-weight: 700; color: var(--red);
   background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.25);
   border-radius: 20px; padding: 0.1rem 0.5rem;
 }
-.price-red    { color: var(--red) !important; }
-.texto-rojo   { color: #ff4444 !important; font-weight: 600; }
+.price-red  { color: var(--red) !important; }
+.texto-rojo { color: #ff4444 !important; font-weight: 600; }
 
 /* ── Total con animación ─────────────────────────────────────── */
 .total-val { transition: color 0.4s; }
@@ -189,3 +271,9 @@ tr.descuento td { background: rgba(239,68,68,0.04); }
 }
 .share-item:hover { border-color: var(--accent-mid); background: var(--surface); }
 .share-status { margin-top: .5rem; font-size: .8rem; color: var(--text3); }
+
+/* ── Loading placeholder ─────────────────────────────────────── */
+.pl-loading {
+  text-align: center; padding: 1.5rem;
+  font-size: 0.875rem; color: var(--text3);
+}

@@ -48,11 +48,183 @@ CATEGORIAS_VALIDAS = {
 PROMPT = """
 You are an expert Retail Data Analyst and Bookkeeper. Your objective is to extract information from a receipt (ticket) image and standardize it into a highly professional catalog format.
 
-CRITICAL INSTRUCTION: You must return ONLY a raw, valid JSON object. Do NOT include markdown formatting (like ```json), do NOT include explanations, and do NOT add any conversational text. The response must start strictly with { and end with }.
+CRITICAL INSTRUCTION: You must return ONLY a raw, valid JSON object. Do NOT include markdown formatting (like ```json), explanations, or conversational text. Start strictly with { and end with }.
 
-Return exactly this JSON structure:
+This is a long receipt. Speed is NOT a priority. Accuracy is. Take as many tokens as needed.
+
+You MUST follow the FIVE-PASS METHOD below without skipping any pass.
+
+═══════════════════════════════════════════════════════════
+PASS 1 — RAW TRANSCRIPTION (_1_transcripcion_bruta)
+═══════════════════════════════════════════════════════════
+
+Transcribe EVERY line from the receipt image, top to bottom, into the "_1_transcripcion_bruta" array.
+
+STRICT RULES:
+- One printed line = one array element. NEVER merge two lines into one element.
+- NEVER skip any line. Include ALL lines that contain a price or a kg weight.
+- If the same product name appears twice, write BOTH as separate elements.
+- For two-line produce items: the product NAME is one element. The weight/price breakdown line immediately below it is the NEXT separate element. These are TWO elements, not one.
+- Stop at the TOTAL line (do not include it).
+
+⚠ CRITICAL AFTER PASS 1 — DUPLICATE SANDWICH PRE-SCAN:
+Before doing anything else, scan _1_transcripcion_bruta for any product name that appears more than once.
+For EACH duplicate pair found:
+  a) Record the index of the FIRST occurrence (index_first).
+  b) Record the index of the LAST occurrence (index_last).
+  c) List EVERY element between index_first+1 and index_last-1, one by one.
+  d) Count them: this count = N_sandwich.
+  e) STATE EXPLICITLY: "There are N_sandwich items sandwiched between these duplicates."
+  f) COMMIT: "I will create N_sandwich product objects between these two duplicate entries."
+DO NOT proceed to Pass 2 until this pre-scan is complete.
+
+═══════════════════════════════════════════════════════════
+PASS 2 — VERIFICATION (_2_verificacion)
+═══════════════════════════════════════════════════════════
+
+Fill this object after Pass 1 and BEFORE building the products array.
+
 {
-    "supermercado": "Clean commercial name of the store",
+  "total_lineas_producto": <count only product name lines, not weight/detail sub-lines, not parking>,
+  "total_productos_extraidos": "? (fill after Pass 3)",
+  "suma_calculada": "? (fill after Pass 3)",
+  "total_tiquet": <the total printed on the receipt, as float>,
+  "diferencia_euros": "? (fill after Pass 3)",
+  "duplicados_detectados": [
+    "For EACH duplicate: 'PRODUCT NAME: index_first=N, index_last=M, N_sandwich=K items between them'"
+  ],
+  "items_entre_duplicados": {
+    "PRODUCT_NAME": [
+      "index N+1: '<raw line>' → product object #X in productos",
+      "index N+2: '<raw line>' → product object #X+1 in productos",
+      "... one entry per sandwiched line ..."
+    ]
+  },
+  "produce_pairs_confirmed": [
+    "For each produce item with a TWO-LINE format, write BEFORE building productos:",
+    "  ITEM_NAME (index N) → weight line (index N+1): X kg × Y €/kg = Z total",
+    "  cantidad = X, precio = Y",
+    "Confirm each pair explicitly. Do NOT start building productos until all pairs are listed."
+  ],
+  "estado": "? (OK if diferencia <= 0.05, else REVISAR with explanation)"
+}
+
+═══════════════════════════════════════════════════════════
+PASS 3 — STRUCTURED EXTRACTION (productos array)
+═══════════════════════════════════════════════════════════
+
+Build productos strictly in order using _1_transcripcion_bruta as the source of truth.
+
+🔧 PRICE ANCHOR RULE (prevents price cross-contamination between adjacent items):
+Before writing each product object, state internally:
+  "I am processing index N: '<raw line>'. The price on THIS line is X.XX €."
+Then write the product object using ONLY the price from that exact line.
+Do NOT carry over, borrow, or re-use the price from the previous or next line.
+
+🔧 SANDWICH PROTOCOL (mandatory sequence for every duplicate pair):
+When you encounter index_first (the first duplicate), follow this EXACT sequence:
+
+  STEP 1 — Write the FIRST duplicate object using the price on index_first's line.
+  STEP 2 — For each sandwiched line (index_first+1 … index_last-1), in order:
+    a) Quote the raw line from _1_transcripcion_bruta: "Line N text: '…'"
+    b) Read the price from THAT EXACT LINE and state it: "Price on this line: X.XX"
+    c) Write the product object using ONLY that price. Do NOT look ahead or behind.
+  STEP 3 — After all sandwich items are written, write the SECOND duplicate object
+    using the price on index_last's line (which is DIFFERENT from the first duplicate's
+    price). This second object is NOT optional — it is a real purchase.
+  STEP 4 — State: "Sandwich complete. Written N items between the two duplicates."
+    If N ≠ N_sandwich from Pass 1 pre-scan, STOP and find the missing item(s).
+
+⚠ CRITICAL: The price for the inserted item comes from ITS OWN LINE in
+  _1_transcripcion_bruta — NOT from the line before it, NOT from the line after it.
+  Never "carry over" a price from an adjacent line when inserting a sandwich item.
+
+After every 5 products written, perform a SPOT CHECK:
+- Read the last 5 entries in productos.
+- For each one, locate its source index in _1_transcripcion_bruta.
+- Verify that the precio in productos exactly matches the price printed on that source line.
+- If any mismatch is found, fix it immediately before continuing.
+
+═══════════════════════════════════════════════════════════
+PASS 4 — MANDATORY SELF-AUDIT
+═══════════════════════════════════════════════════════════
+
+Execute ALL of the following checks before closing the JSON:
+
+CHECK A — COUNT MATCH
+  total_productos_extraidos (len of productos array) must equal total_lineas_producto.
+  If they differ: find the missing lines in _1_transcripcion_bruta and add them.
+
+CHECK B — DUPLICATE SANDWICH AUDIT (ENHANCED)
+  For every pair listed in duplicados_detectados:
+  1. Find both product objects in productos (by name and price).
+  2. List every product object that sits between them in the array.
+  3. Cross-reference with items_entre_duplicados for that pair, item by item.
+  4. For EACH entry in items_entre_duplicados:
+     - Search the productos array by name AND price.
+     - If found: mark ✓ PRESENT.
+     - If NOT found: mark ✗ MISSING → immediately insert it in the correct position.
+  5. Confirm final count: (products between duplicates) == N_sandwich.
+  6. PRICE CHECK on all sandwich items: for each inserted item, locate its source
+     line in _1_transcripcion_bruta and verify the precio matches THAT line exactly.
+     The most common error: the inserted item's precio matches the NEXT item's price
+     (a cascade shift). If this is the case, fix ALL affected prices downstream.
+  ⚠ DO NOT SKIP THIS CHECK. A missing sandwich item causes a total mismatch that
+     is easy to overlook. The item WILL have a price on the receipt — find it.
+
+CHECK C — PRICE VERIFICATION (line-by-line)
+  For EVERY product object in productos:
+  1. Locate its source line in _1_transcripcion_bruta by index.
+  2. Extract the unit price printed on that exact line.
+  3. Confirm it matches productos[i].precio exactly.
+  If ANY mismatch is found: fix the precio before continuing.
+  🔧 Pay special attention to consecutive items with similar prices
+     (e.g. 1.20 and 1.80, 1.25 and 1.55) — these are the most common swap victims.
+
+CHECK D — SUBTOTAL CROSS-CHECK (per item)
+  For every non-produce product (categoria ≠ "Fruta/Verdura"):
+    expected_subtotal = cantidad × precio
+    Locate the printed subtotal on that product's source line in _1_transcripcion_bruta.
+    If expected_subtotal ≠ printed_subtotal (tolerance: 0.01€): the precio is WRONG.
+    Re-read the receipt line and correct it before continuing.
+  This catches misread prices that the sum check might absorb as rounding.
+
+CHECK E — SUM CHECK
+  Calculate suma_calculada = sum of all (cantidad × precio) in productos.
+  Calculate diferencia_euros = abs(total_tiquet - suma_calculada).
+  If diferencia_euros > 0.05€:
+    Step 1: Re-run CHECK B. A missing sandwich item is the most likely cause.
+    Step 2: Re-run CHECK C to find any misread price.
+    Step 3: Re-count total_lineas_producto vs len(productos). Add any missing item.
+    Step 4: Fix all errors found. Recalculate until diferencia_euros <= 0.05.
+  Set estado = "OK" only when diferencia_euros <= 0.05.
+  Do NOT close the JSON with estado = "REVISAR" without first exhausting all correction steps.
+  Note: a residual difference of ≤ 0.05€ is acceptable due to produce kg rounding.
+
+═══════════════════════════════════════════════════════════
+PASS 5 — FINAL NUMERICAL RECONCILIATION
+═══════════════════════════════════════════════════════════
+
+This pass exists solely to catch the one failure mode where all previous checks pass
+but the sum still does not match — typically caused by a single skipped low-price item.
+
+  1. Sort productos by their source index (the order they appear in _1_transcripcion_bruta).
+  2. Walk _1_transcripcion_bruta from index 0 to the last product line.
+  3. For each line that contains a price (look for comma-separated decimals like "1,25"):
+     - Confirm there is a product object in productos whose precio matches that line's price
+       AND whose position in the array corresponds to that index.
+     - If no match: that line was SKIPPED. Create the product object and insert it.
+  4. Recalculate suma_calculada and diferencia_euros.
+  5. Update _2_verificacion accordingly and set estado = "OK" if diferencia <= 0.05.
+
+═══════════════════════════════════════════════════════════
+FULL JSON STRUCTURE
+═══════════════════════════════════════════════════════════
+
+{
+    "_1_transcripcion_bruta": [ ... ],
+    "_2_verificacion": { ... },
+    "supermercado": "Extract the commercial brand name ONLY if it is explicitly printed as such (e.g. 'MERCADONA', 'LIDL', 'CARREFOUR'). Output \"Desconocido\" if the header contains ONLY: an address, postal code, city name, phone number, tax ID (CIF/NIF starting with A-, B-, etc.), invoice number, or any combination of these — with NO recognisable retail brand name. Do NOT infer or guess the chain from the address or phone number. NEGATIVE EXAMPLES that must output \"Desconocido\": '08911 BADALONA', 'C/ SEU D\'URGELL 44', '938347360', 'A-46103834', 'FACTURA SIMPLIFICADA: 4176-013-400798'.",
     "tipo_comercio": "Supermercado, Restaurante, Farmacia, Moda, Electronica, or Otros",
     "fecha_tiquet": "YYYY-MM-DD HH:MM",
     "total": 0.00,
@@ -60,7 +232,7 @@ Return exactly this JSON structure:
     "productos": [
         {
             "cantidad": 1,
-            "marca": "Manufacturer or main brand",
+            "marca": "Manufacturer or main brand (or 'Generica')",
             "producto": "Clean, fully expanded descriptive name in Title Case",
             "precio": 0.00,
             "categoria": "Alimentacion, Bebidas, Higiene, Hogar, Mascotas, Ropa, Electronica, Descuento, Fruta/Verdura, Bolsas/Envases, or Otros"
@@ -69,61 +241,113 @@ Return exactly this JSON structure:
 }
 
 ═══════════════════════════════════════════════════════════
-EXTRACTION & CLEANING RULES (STRICT COMPLIANCE REQUIRED)
+EXTRACTION RULES
 ═══════════════════════════════════════════════════════════
 
-1. ABSOLUTE EXCLUSIONS (DO NOT INCLUDE IN "productos")
-   - Parking entries, validations, or tickets of ANY kind (e.g., "PARQUING", "TICKET PARKING", "DTO. PARKING"), regardless of whether their price is 0.00 or a non-zero value.
-   - Items with a final price of exactly 0.00.
-   - Payment method lines: "Tarjeta", "Visa", "Mastercard", "Efectivo", "Metálico", "Contactless".
-   - Change lines: "Su cambio", "Cambio", "Entregado".
-   - VAT/Tax breakdown lines: "IVA", "BASE IMPOSABLE", "QUOTA", tax percentages.
-   - Loyalty points, "CLUB CARREFOUR", or "VENTAJAS OBTENIDAS" summary lines.
-   - Total / subtotal summary rows.
+1. EXACT PRICE EXTRACTION
+   - Extract the EXACT printed unit price. Never invent or adjust a price.
+   - Read prices horizontally on THAT exact line only.
+   - A price belongs to the item on its own line, never to the item above or below.
 
-2. DISCOUNTS & SPLIT PRICES (CRITICAL CARREFOUR FIX)
-   - "categoria" MUST be "Descuento".
-   - "precio" MUST be a STRICTLY NEGATIVE float (e.g., -0.73).
-   - OCR SPLIT DECIMAL FIX: If you encounter a price that ends with a comma (e.g., "-0," or "1,"), the OCR has split the number. You MUST scan the immediate next available numbers in the OCR text to find the 1 or 2-digit decimals (e.g., "73" or "90"). Combine them mathematically: "-0," and "73" = -0.73. NEVER output a number ending in a comma or a string.
+2. ANTI-SHIFTING — PROCESS ONE ITEM AT A TIME
+   - Work through _1_transcripcion_bruta strictly in order.
+   - For each non-produce item: read the name and price on the same line, write the
+     product object, then move to the next line.
+   - For each two-line produce item (see Rule 6): read the name line, then IMMEDIATELY
+     read the next line for weight/price data, write the complete product object, then
+     advance. Do NOT move to the next product until the current produce pair is fully
+     written.
+   - After every 5 products, verify the last price written matches the price printed on
+     that exact line in _1_transcripcion_bruta.
 
-3. PRODUCT NAME ("producto") — CLEAN & EXPAND
-   - EXPAND ABBREVIATIONS: Use your knowledge to expand supermarket abbreviations logically. 
-     * Example: "T.VERD MARACUYA" -> "Te Verde Maracuya"
-     * Example: "B.ENER.CACA.CA" -> "Barrita Energetica Cacao"
-   - Be aggressive expanding abbreviations for cosmetics and cleaning supplies (e.g., "GEL DUCHA V." -> "Gel Ducha", "DES. ALOE R." -> "Desodorante Aloe Roll-on", "DETERG. LIQ" -> "Detergente Liquido").
-   - REMOVE TRAILING TAX INDICATORS: Spanish receipts end product lines with isolated characters ("O", "0", "A", "B", "C"). You MUST remove them. "T.VERD MARACUYA O" -> "Te Verde Maracuya".
-   - Remove noise: Store IDs, asterisks, arrows (↓), "REF.".
+3. DUPLICATE PRODUCT NAMES
+   - If the same name appears twice, create TWO separate product objects with their
+     respective (potentially different) prices.
+   - ALL items listed in _2_verificacion.items_entre_duplicados must appear as product
+     objects between the two duplicates. Verify this explicitly in Pass 4 / CHECK B.
+   ⚠ A product name appearing between two duplicate entries is NOT a third duplicate —
+     it is a DIFFERENT product that happens to be sandwiched. Write it as its own object.
 
-4. BRAND ("marca")
-   - Extract the manufacturer. If the item implies a store brand (e.g., "ARANDANO CARRE"), use the store name (e.g., "Carrefour"). If unknown, use "Generica".
+4. QUANTITY > 1 AND TWO-COLUMN PRICES
+   - Format on receipt: [QTY] [ITEM NAME] [UNIT PRICE] [LINE TOTAL]
+   - Always extract UNIT PRICE (first price), never the line total (last price).
+   - Example: "2 TRUITA PATATA/CEBA 2,80 5,60" → cantidad: 2, precio: 2.80
+   - Example: "6 PANET LLAVORS 0,35 2,10" → cantidad: 6, precio: 0.35
 
-5. QUANTITY & UNIT PRICE ENFORCEMENT (CRITICAL)
-   - "precio" MUST be the price of exactly ONE unit. Ensure it is a FLOAT.
-   - When "cantidad" > 1, receipts usually print: [QTY] [NAME] [UNIT PRICE] [LINE TOTAL] (e.g., "2 BARRITA CACAO 1,65 3,30").
-   - You MUST extract the UNIT PRICE (1.65) for the "precio" field. NEVER extract the line total (3.30).
-   - FALLBACK MATH: If the OCR only captured the line total and the unit price is missing from the text, you MUST mathematically divide the line total by "cantidad" to determine the true "precio" (e.g., 3.30 / 2 = 1.65).
-   - Weighted produce (fresh fruit/vegetables): Category is "Fruta/Verdura". "cantidad" MUST be the WEIGHT in kilograms (kg) as a float (e.g., 0.750). "precio" MUST be the PRICE PER KILOGRAM (€/kg).
+5. CATEGORY "Fruta/Verdura" — THE KG TEST (mandatory before every assignment)
+   This category signals that the price is in €/kg. Assigning it incorrectly corrupts
+   totals. Apply this single test before writing EVERY product's categoria:
 
-6. SUPERMARKET ("supermercado") & DATE ("fecha_tiquet")
-   - Extract clean commercial name (remove S.A., S.L., Centros Comerciales).
-   - Date: Convert to ISO (YYYY-MM-DD HH:MM). If missing, return null.
+   ══ THE KG TEST ══
+   Ask: "Does THIS line, or the line immediately below it, contain 'kg' or 'KG'
+         AND a price-per-kg rate (€/kg or X,XX €/kg)?"
+   ▶ YES → categoria: "Fruta/Verdura"
+   ▶ NO  → categoria: "Alimentacion" (or the appropriate non-produce category)
+            NO EXCEPTIONS. The product's name is irrelevant.
+            A broccoli, tomato, or onion sold WITHOUT a kg notation = Alimentacion.
 
-7. EXTREME OCR FRAGMENTATION & COLUMN MAPPING
-   - Prices and items may be heavily disjointed. Carefully map the floating prices (especially negative ones) to their corresponding discount descriptions.
+   ✅ Fruta/Verdura — the ONLY two valid receipt patterns:
+      FORMAT A — name on line N (no price), weight+price on line N+1:
+        Line N:   "1 MANDARINA"
+        Line N+1: "1,428 kg  2,35 €/kg  3,36"
+        → Fruta/Verdura ✓
 
-8. DEDUPLICATION & GHOST READING PREVENTION (CRITICAL)
-   - NEVER duplicate an item unless it explicitly appears printed on multiple separate lines on the receipt.
-   - Do not confuse descriptive sub-lines, weight info, or OCR ghosting as separate products.
-   - If you are about to output two identical items (same name, same price), stop and double-check the raw text. If the raw text only shows that line once, you MUST output it only once.
-   - If a product has a quantity of >1 (e.g., "2 PICO RST.RUSTICO"), output a SINGLE JSON object with "cantidad": 2. NEVER split it into two JSON objects of quantity 1.
+      FORMAT B — name + weight + total on one line:
+        "1 MADUIXOT 1,3 KG 3,21"
+        → Fruta/Verdura ✓ (see Rule 6 for price calculation)
 
-9. ELIMINATE TRUNCATED GHOST READINGS (CRITICAL)
-   - The OCR often creates partial/truncated duplicate lines (e.g., reading a fragment like "CARBASS VERD" right next to the real item "CARBASSO VERD").
-   - If you detect a product that is clearly a fragmented, truncated, or ghost reading of another product, YOU MUST DELETE IT. 
-   - Do NOT attempt to fix its name and DO NOT include it in the final "productos" array. Just completely ignore it and drop it from the JSON.
+   ❌ Alimentacion — memorize these exact receipt patterns:
+      "1 BROQUIL 2,00"                    → Alimentacion, cantidad:1, precio:2.00
+      "1 TOMAQUET NATURAL RAT 1,00"       → Alimentacion, cantidad:1, precio:1.00
+      "2 TOMAQUET TRITURAT 1,00 2,00"     → Alimentacion, cantidad:2, precio:1.00
+      "1 MONGETA RODONA A TR 1,45"        → Alimentacion, cantidad:1, precio:1.45
+      "2 MONGETA BLANCA CUITA 0,80 1,60"  → Alimentacion, cantidad:2, precio:0.80
+      Any "[QTY] [NAME] [PRICE]" line without kg = Alimentacion, always.
 
-10. FINAL REMINDER
-    - Return ONLY raw JSON. No markdown blocks. No explanations.
+6. MULTI-LINE PRODUCE — THE ANCHOR RULE
+   Two formats exist for produce with weight:
+
+   FORMAT A — Two separate lines:
+     Line N:   "1 MANDARINA"              ← product name line (ignore the "1")
+     Line N+1: "1,428 kg 2,35 €/kg 3,36" ← weight/price line
+     → cantidad: 1.428 (from line N+1), precio: 2.35 (from line N+1)
+     → IGNORE the "1" on the name line — it is a placeholder, not the kg weight
+     → IGNORE the line total 3.36
+
+   FORMAT B — Single line with weight embedded:
+     "1 MADUIXOT 1,3 KG 3,21"
+     → The rightmost number (3,21) is the LINE TOTAL, NOT the unit price.
+     → cantidad = the kg weight printed = 1.3
+     → precio = line_total ÷ weight = 3.21 ÷ 1.3 = 2.47  (ALWAYS divide, never use total as price)
+     → categoria: "Fruta/Verdura"
+     → Remove weight notation from product name: "Maduixot"
+     ⚠ NEVER set cantidad=1 and precio=line_total for FORMAT B items. That is always wrong.
+
+   THE ANCHOR RULE: The weight on Line N+1 belongs to the product on Line N.
+   List all pairs in _2_verificacion.produce_pairs_confirmed BEFORE building productos.
+
+   ANTI-CASCADE CHECK FOR PRODUCE: After writing each produce item, verify:
+     - The cantidad you used matches the kg on that item's weight line (NOT the next item's).
+     - The precio you used matches the €/kg on that item's weight line (NOT the next item's).
+   State explicitly: "BANANA: using its OWN weight line (index N+1): X kg × Y €/kg"
+   Never write "1 kg" for a produce item unless the weight line literally says "1,000 kg" or "1 kg".
+
+7. PRODUCT NAME FORMATTING
+   - Expand truncated words to their full correct form:
+     "ASSORTID" → "Assortida", "CONF." → "Conferència", "INTEG." → "Integral"
+     "S/G" → "Sense Greix", "S/SUR" → "Sense Surimi", "FRANKFU" → "Frankfurt"
+     "LLAMIN." → "Llaminadura", "PAT." → "Patates", "EMP" → "Empanada"
+     "AVEN I SEMI" → "Avena i Semilles", "FARCIDA" → "Farcida"
+     Apply this logic to any word that is clearly incomplete due to receipt character limits.
+   - Remove trailing isolated tax indicator characters (" O", " A", " B") from name end.
+   - Use Title Case for all product names.
+
+8. ABSOLUTE EXCLUSIONS
+   - Parking ("PARQUING", "TICKET PARKING", or any variant): NEVER create a product
+     object for these, regardless of price (even 0.00). Do not include them in
+     total_lineas_producto count either.
+   - Items with a final printed price of exactly 0.00 that are not parking: exclude.
+   - Payment lines, VAT summaries ("IVA", "BASE IMPOSABLE"), change lines: exclude.
 """
 
 def normalizar_nombre_producto(texto: str) -> str:
