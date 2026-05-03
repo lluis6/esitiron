@@ -22,6 +22,10 @@
       <br><br>Quedará pendiente de verificación por un administrador.
     </p>
     
+    <div style="background:var(--surface2); border:1px solid var(--border); border-radius:6px; padding:0.75rem; margin-bottom:1rem; font-size:0.85rem; color:var(--text2); text-align: left;">
+      <strong>Nombre en tiquet:</strong> <span id="modalEanOriginal"></span>
+    </div>
+
     <div style="display:flex; align-items:center; gap:1rem; padding:0.75rem; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--surface2); text-align:left; margin-bottom:1.5rem;">
       <img id="modalEanImg" src="" style="width:48px; height:48px; object-fit:contain; border-radius:6px; background:white; border:1px solid var(--border); flex-shrink:0;" alt="">
       <div style="flex:1; min-width:0;">
@@ -414,18 +418,22 @@ async function abrirPrecios(idProducto, nombre) {
 
 // ── Panel de Vincular ─────────────────────────────────────────
 let currentIdCompra = null;
+let currentOriginalName = '';
 let buscarTimer = null;
 let eanLookupProduct = null;
 
 const PLACEHOLDER_IMG = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 48 48'%3E%3Crect width='48' height='48' rx='8' fill='%23f3f4f6'/%3E%3Ctext x='50%25' y='54%25' dominant-baseline='middle' text-anchor='middle' font-size='22' font-family='sans-serif'%3E🛒%3C/text%3E%3C/svg%3E`;
 
 // MODAL CONFIRMACIÓN EAN (Promise-based)
-function confirmarReferenciaBarcodeAsync(ean, nombre, marca, fotoUrl) {
+function confirmarReferenciaBarcodeAsync(ean, nombre, marca, fotoUrl, originalName) {
   return new Promise((resolve) => {
     const modal = document.getElementById('modalConfirmEan');
     document.getElementById('modalEanVal').textContent = ean || 'N/A';
     document.getElementById('modalEanNombre').textContent = nombre || 'Desconocido';
     document.getElementById('modalEanMarca').textContent = marca || '';
+    
+    const origEl = document.getElementById('modalEanOriginal');
+    if (origEl) origEl.textContent = originalName || 'Desconocido';
     
     const imgEl = document.getElementById('modalEanImg');
     imgEl.src = fotoUrl || PLACEHOLDER_IMG;
@@ -451,6 +459,7 @@ function confirmarReferenciaBarcodeAsync(ean, nombre, marca, fotoUrl) {
 
 function abrirVincular(id, original) {
   currentIdCompra = id;
+  currentOriginalName = original || '';
   document.getElementById('vpOriginalLabel').textContent = original;
   document.getElementById('vpSearchInput').value = '';
   document.getElementById('vpResults').innerHTML =
@@ -542,7 +551,13 @@ async function buscarEAN() {
 
       renderEanFound(eanLookupProduct);
       
-      const confirmado = await confirmarReferenciaBarcodeAsync(eanLookupProduct.ean, eanLookupProduct.nombre, eanLookupProduct.marca, eanLookupProduct.image_url);
+      const confirmado = await confirmarReferenciaBarcodeAsync(
+        eanLookupProduct.ean, 
+        eanLookupProduct.nombre, 
+        eanLookupProduct.marca, 
+        eanLookupProduct.image_url,
+        currentOriginalName
+      );
       if (!confirmado) {
         setEanStatus('Operacion cancelada.', 'info');
         return;
@@ -579,20 +594,22 @@ async function vincularEanExistente() {
   if (!currentIdCompra || !eanLookupProduct) return;
 
   try {
-    const importRes = await fetch('/api/opf/import', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(eanLookupProduct)
-    });
-    const importData = await importRes.json();
-    if (!importRes.ok) throw new Error(importData.error || 'No se pudo guardar el producto');
-
+    // Al pasar producto_externo también desencadenaremos la creación de una verificaciones_barcode
     const linkRes = await fetch('/api/compras/vincular', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id_compra: currentIdCompra, id_producto_maestro: importData.id })
+      body: JSON.stringify({ 
+        id_compra: currentIdCompra,
+        producto_externo: {
+          codigo_barras: eanLookupProduct.ean,
+          nombre: eanLookupProduct.nombre,
+          marca: eanLookupProduct.marca,
+          foto_url: eanLookupProduct.image_url
+        }
+      })
     });
-    if (!linkRes.ok) throw new Error('Error al vincular');
+    const linkData = await linkRes.json();
+    if (!linkRes.ok) throw new Error(linkData.error || 'Error al vincular');
 
     location.reload();
   } catch (e) {
@@ -633,7 +650,7 @@ async function crearYVincularEAN(e) {
   }
 
   const fotoUrl = URL.createObjectURL(foto);
-  const confirmado = await confirmarReferenciaBarcodeAsync(ean, nombre, marca, fotoUrl);
+  const confirmado = await confirmarReferenciaBarcodeAsync(ean, nombre, marca, fotoUrl, currentOriginalName);
   if (!confirmado) {
     setEanStatus('Operacion cancelada.', 'info');
     return;
@@ -661,7 +678,17 @@ async function crearYVincularEAN(e) {
       const linkRes = await fetch('/api/compras/vincular', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id_compra: currentIdCompra, id_producto_maestro: data.local_product_id })
+        body: JSON.stringify({ 
+          id_compra: currentIdCompra, 
+          id_producto_maestro: data.local_product_id,
+          // Pasamos el producto externo para desencadenar la verificación por EAN
+          producto_externo: {
+            codigo_barras: ean,
+            nombre: nombre,
+            marca: marca,
+            foto_url: null
+          }
+        })
       });
       if (!linkRes.ok) throw new Error('No se pudo vincular la compra');
     }
@@ -691,7 +718,7 @@ async function _doSearch(q) {
   resultsDiv.innerHTML = '<p style="text-align:center; padding:2rem; color:var(--text2);">🔍 Buscando...</p>';
   if (emptyCta) emptyCta.classList.add('hidden');
   try {
-    const [localResult, offResult] = await Promise.allSettled([
+    const[localResult, offResult] = await Promise.allSettled([
       fetchJsonArray(`/api/maestros/buscar?q=${encodeURIComponent(q)}`),
       fetchJsonArray(`/api/proxy/off?q=${encodeURIComponent(q)}`),
     ]);
@@ -769,7 +796,7 @@ async function vincular(p, isExternal) {
 
   if (isExternal && p.codigo_barras) {
     const nombre = p.nombre || p.product_name || '';
-    const confirmado = await confirmarReferenciaBarcodeAsync(p.codigo_barras, nombre, p.marca, p.foto_url);
+    const confirmado = await confirmarReferenciaBarcodeAsync(p.codigo_barras, nombre, p.marca, p.foto_url, currentOriginalName);
     if (!confirmado) return;
   }
 

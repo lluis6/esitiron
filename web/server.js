@@ -1,3 +1,4 @@
+
 'use strict';
 
 const express    = require('express');
@@ -323,7 +324,7 @@ const uploadTiquet = multer({
   fileFilter: (_req, file, cb) => {
     // Normalizar variantes de MIME que mandan algunos móviles
     const mime = (file.mimetype || '').toLowerCase().trim();
-    const ALLOWED = [
+    const ALLOWED =[
       'image/jpeg', 'image/jpg',          // Android a veces manda image/jpg
       'image/png', 'image/webp', 'image/gif',
       'application/pdf',
@@ -331,7 +332,7 @@ const uploadTiquet = multer({
     ];
     // También aceptar por extensión cuando el MIME llega vacío o genérico
     const ext = path.extname(file.originalname || '').toLowerCase();
-    const ALLOWED_EXT = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.pdf'];
+    const ALLOWED_EXT =['.jpg', '.jpeg', '.png', '.webp', '.gif', '.pdf'];
     if (ALLOWED.includes(mime) || ALLOWED_EXT.includes(ext)) {
       cb(null, true);
     } else {
@@ -355,7 +356,7 @@ const uploadAvatar = multer({
   },
 });
 
-const AVATAR_MAGIC = [
+const AVATAR_MAGIC =[
   { ext: '.jpg',  test: (buf) => buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff },
   { ext: '.png',  test: (buf) => buf.length >= 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47 && buf[4] === 0x0d && buf[5] === 0x0a && buf[6] === 0x1a && buf[7] === 0x0a },
   { ext: '.gif',  test: (buf) => buf.length >= 6 && (buf.toString('ascii', 0, 6) === 'GIF87a' || buf.toString('ascii', 0, 6) === 'GIF89a') },
@@ -379,7 +380,7 @@ const uploadOpf = multer({
   storage: multer.memoryStorage(),
   limits:  { fileSize: 6 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
-    const allowed = ['image/jpeg','image/png','image/webp'];
+    const allowed =['image/jpeg','image/png','image/webp'];
     if (allowed.includes(file.mimetype)) cb(null, true);
     else cb(new Error('Formato de imagen no permitido'));
   },
@@ -484,7 +485,7 @@ app.get('/avatar/:filename', (req, res) => {
 
   fs.stat(filepath, (err, stats) => {
     if (err || !stats.isFile()) return res.status(404).json({ error: 'Avatar no encontrado' });
-    const validExtensions = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
+    const validExtensions =['.png', '.jpg', '.jpeg', '.webp', '.gif'];
     const fileExt = path.extname(filepath).toLowerCase();
     if (!validExtensions.includes(fileExt)) return res.status(403).json({ error: 'Tipo de archivo no permitido' });
     res.set({
@@ -583,7 +584,7 @@ async function getTotalesPeriodo(uid) {
   const qGT = 'SELECT COALESCE(SUM(total_tiquet),0) AS g, COUNT(*) AS n FROM tiquets WHERE id_usuario=?';
   const [[sem], [mes], [anyo], [tot]] = await Promise.all([
     dbPool.execute(qG,  [uid, iS]),
-    dbPool.execute(qG,  [uid, iM]),
+    dbPool.execute(qG,[uid, iM]),
     dbPool.execute(qG,  [uid, iA]),
     dbPool.execute(qGT, [uid]),
   ]);
@@ -650,7 +651,7 @@ async function getProductosUsuario(uid, pais, supermercado) {
 
 async function guardarTiquet(uid, datos) {
   const super_ = normalizarTienda(datos.supermercado);
-  const prods  = datos.productos || [];
+  const prods  = datos.productos ||[];
   const productosNormalizados = prods.map(p => {
     const esDescuento = esProductoDescuento(p);
     const categoria   = esDescuento ? 'Descuento' : (p.categoria || 'Otros');
@@ -674,8 +675,7 @@ async function guardarTiquet(uid, datos) {
     await conn.beginTransaction();
     const tiquetUUID = crypto.randomUUID();
     const [rt] = await conn.execute(
-      'INSERT INTO tiquets (id_usuario, supermercado, total_tiquet, fecha_compra, uuid) VALUES (?,?,?,?,?)',
-      [uid, super_, total, fecha, tiquetUUID]
+      'INSERT INTO tiquets (id_usuario, supermercado, total_tiquet, fecha_compra, uuid) VALUES (?,?,?,?,?)',[uid, super_, total, fecha, tiquetUUID]
     );
     const idT = rt.insertId;
 
@@ -698,7 +698,7 @@ async function guardarTiquet(uid, datos) {
         if (mapeo.length > 0) {
           idP = mapeo[0].id_producto_maestro;
           yaVinculado = 1;
-          await conn.execute('UPDATE diccionario_productos SET usos = usos + 1 WHERE nombre_en_tiquet = ?', [nomOcr]);
+          await conn.execute('UPDATE diccionario_productos SET usos = usos + 1 WHERE nombre_en_tiquet = ?',[nomOcr]);
         } else {
           const [ex] = await conn.execute('SELECT id FROM productos_maestros WHERE nombre=?', [nom]);
           if (ex.length) {
@@ -717,8 +717,7 @@ async function guardarTiquet(uid, datos) {
       }
       await conn.execute(
         `INSERT INTO compras (id_tiquet, id_usuario, id_producto, cantidad, precio_unitario, es_descuento, nombre_original, curado)
-         VALUES (?,?,?,?,?,?,?,?)`,
-        [idT, uid, idP, cant, prec, esD, nomOcr, yaVinculado]
+         VALUES (?,?,?,?,?,?,?,?)`,[idT, uid, idP, cant, prec, esD, nomOcr, yaVinculado]
       );
     }
     await conn.commit();
@@ -750,8 +749,7 @@ app.post('/login', async (req, res) => {
       if (password.length < 8)  return res.redirect('/login?error=Contraseña+mínimo+8+caracteres');
       if (await getUser(username)) return res.redirect('/login?error=Usuario+ya+existe');
       await dbPool.execute(
-        'INSERT INTO usuarios (username,email,password_hash,activo) VALUES (?,?,?,1)',
-        [username, email, bcryptjs.hashSync(password, 12)]
+        'INSERT INTO usuarios (username,email,password_hash,activo) VALUES (?,?,?,1)',[username, email, bcryptjs.hashSync(password, 12)]
       );
       return res.redirect('/login?success=Cuenta+creada');
     }
@@ -769,7 +767,7 @@ app.post('/login', async (req, res) => {
 
 app.get('/login/2fa', (req, res) => {
   if (!req.session.totp_pending) return res.redirect('/login');
-  const messages = [];
+  const messages =[];
   if (req.query.error) messages.push(['danger', decodeURIComponent(req.query.error)]);
   res.render('login_2fa.html', { messages });
 });
@@ -805,13 +803,13 @@ app.post('/login/2fa', async (req, res) => {
 app.get('/dashboard', auth, async (req, res) => {
   try {
     const uid = req.session.usuario.id;
-    const [historial, resumen, totales, totalTiquets] = await Promise.all([
+    const[historial, resumen, totales, totalTiquets] = await Promise.all([
       getTiquets(uid, 5),
       getResumen(uid),
       getTotalesPeriodo(uid),
       dbPool.execute('SELECT COUNT(*) AS n FROM tiquets WHERE id_usuario=?', [uid]).then(([r]) => r[0].n),
     ]);
-    const messages = [];
+    const messages =[];
     if (req.query.error)   messages.push(['danger',  decodeURIComponent(req.query.error)]);
     if (req.query.success) messages.push(['success', decodeURIComponent(req.query.success)]);
     res.render('dashboard.html', { ...navLocals(req), historial, resumen, totales, total: totales.total, totalTiquets, messages });
@@ -822,7 +820,7 @@ app.get('/tiquets', auth, async (req, res) => {
   try {
     const uid = req.session.usuario.id;
     const [historial, totales] = await Promise.all([getTiquets(uid), getTotalesPeriodo(uid)]);
-    const messages = [];
+    const messages =[];
     if (req.query.error)   messages.push(['danger',  decodeURIComponent(req.query.error)]);
     if (req.query.success) messages.push(['success', decodeURIComponent(req.query.success)]);
     res.render('todos_tiquets.html', { ...navLocals(req), historial, totales, total: totales.total, messages });
@@ -848,7 +846,7 @@ app.post('/subir_tiquet', auth, (req, res) => {
           if (duplicado) { duplicado.cantidad += current.cantidad; }
           else            { acc.push(current); }
           return acc;
-        }, []);
+        },[]);
       }
       req.session.tiquetPendent = r.data;
       return res.redirect('/preview');
@@ -865,12 +863,12 @@ app.get('/preview', auth, (req, res) => {
   res.render('tiquet_preview.html', {
     ...navLocals(req),
     supermercado: normalizarTienda(d.supermercado || ''),
-    productos:    d.productos || [],
+    productos:    d.productos ||[],
     total:        parseFloat(d.total || 0).toFixed(2),
     fecha_tiquet: d.fecha_tiquet || null,
     hay_error:    d.error || sinP,
     error_msg:    d.error || (sinP ? 'Sin productos' : null),
-    messages:     [],
+    messages:[],
   });
 });
 
@@ -881,7 +879,7 @@ app.post('/confirmar', auth, async (req, res) => {
       supermercado: req.body.supermercado,
       fecha_tiquet: req.body.fecha_tiquet,
       total:        req.body.total,
-      productos:    [],
+      productos:[],
     };
     if (req.body.productos) {
       const prodList = Object.values(req.body.productos);
@@ -923,12 +921,12 @@ app.post('/tiquet/:uuid/eliminar', auth, async (req, res) => {
   const uid  = req.session.usuario.id;
   const conn = await dbPool.getConnection();
   try {
-    const [[t]] = await conn.execute('SELECT id FROM tiquets WHERE uuid=? AND id_usuario=?', [req.params.uuid, uid]);
+    const [[t]] = await conn.execute('SELECT id FROM tiquets WHERE uuid=? AND id_usuario=?',[req.params.uuid, uid]);
     if (!t) { conn.release(); return res.redirect('/dashboard?error=No+encontrado'); }
     await conn.beginTransaction();
     await conn.execute('DELETE FROM compras       WHERE id_tiquet=?',      [t.id]);
     await conn.execute('DELETE FROM tiquets_grupos WHERE tiquet_id = ?',   [t.id]);
-    await conn.execute('DELETE FROM tiquets        WHERE id=? AND id_usuario=?', [t.id, uid]);
+    await conn.execute('DELETE FROM tiquets        WHERE id=? AND id_usuario=?',[t.id, uid]);
     await conn.commit();
     res.redirect('/dashboard?success=Eliminado');
   } catch (e) { await conn.rollback(); console.error('[Eliminar]', e.message); res.redirect('/dashboard?error=Error'); }
@@ -953,7 +951,7 @@ app.get('/productos', auth, async (req, res) => {
     const idsEnGrupos = new Set(enGrupos.map(r => r.id_producto));
     productos.forEach(p => { p.en_grupo = idsEnGrupos.has(p.id_producto_maestro); });
 
-    const idsMaestros = [...new Set(productos.map(p => p.id_producto_maestro))];
+    const idsMaestros =[...new Set(productos.map(p => p.id_producto_maestro))];
     let verifMap = {};
     if (idsMaestros.length > 0) {
       const ph = idsMaestros.map(() => '?').join(',');
@@ -963,7 +961,7 @@ app.get('/productos', auth, async (req, res) => {
         FROM verificaciones_barcode vb
         LEFT JOIN votos_usuario vu ON vu.id_verificacion = vb.id AND vu.id_usuario = ?
         WHERE vb.id_producto IN (${ph}) AND vb.estado = 'pendiente'
-      `, [uid, ...idsMaestros]);
+      `,[uid, ...idsMaestros]);
       verificaciones.forEach(v => { verifMap[v.id_producto] = v; });
     }
     const productosConVerif = productos.map(p => ({ ...p, verificacion: verifMap[p.id_producto_maestro] || null }));
@@ -976,7 +974,7 @@ app.get('/productos', auth, async (req, res) => {
       productos: productosConVerif,
       paises:    paises.map(r => r.pais).filter(Boolean),
       tiendas:   tiendas.map(r => normalizarTienda(r.supermercado)),
-      filtro_pais: pais, filtro_supermercado: supermercado, messages: [],
+      filtro_pais: pais, filtro_supermercado: supermercado, messages:[],
     });
   } catch (e) { console.error('[Productos]', e.message); res.redirect('/dashboard'); }
 });
@@ -985,7 +983,10 @@ app.get('/productos/verificar', auth, adminPageOnly, async (req, res) => {
   try {
     const [pendientes] = await dbPool.execute(`
       SELECT vb.id, vb.codigo_barras, vb.votos_si, vb.votos_no, vb.estado, vb.creado_en,
-             pm.id AS id_producto, pm.nombre, pm.marca, pm.foto_url
+             pm.id AS id_producto, pm.nombre, pm.marca, pm.foto_url,
+             (SELECT GROUP_CONCAT(DISTINCT dp.nombre_en_tiquet SEPARATOR ', ') 
+              FROM diccionario_productos dp 
+              WHERE dp.id_producto_maestro = pm.id) AS nombres_tiquet
       FROM verificaciones_barcode vb
       JOIN productos_maestros pm ON pm.id = vb.id_producto
       WHERE vb.estado = 'pendiente'
@@ -1012,7 +1013,7 @@ app.get('/productos/verificar', auth, adminPageOnly, async (req, res) => {
       pendientes,
       pendientes_baja: pendientesBaja,
       pendientes_opf:  pendientesOpf,
-      messages: [],
+      messages:[],
     });
   } catch (e) {
     console.error('[VerificarProductos]', e.message);
@@ -1031,11 +1032,11 @@ app.get('/api/producto/:id/precios', auth, async (req, res) => {
       'SELECT supermercado, precio, fecha_registro FROM historial_precios WHERE id_producto = ? ORDER BY fecha_registro ASC',
       [idProducto]
     );
-    const [[maestro]] = await dbPool.execute('SELECT nombre, marca FROM productos_maestros WHERE id = ?', [idProducto]);
+    const [[maestro]] = await dbPool.execute('SELECT nombre, marca FROM productos_maestros WHERE id = ?',[idProducto]);
     if (!maestro) return res.status(404).json({ error: 'Producto no encontrado' });
     const bySuper = {};
     historial.forEach(row => {
-      if (!bySuper[row.supermercado]) bySuper[row.supermercado] = [];
+      if (!bySuper[row.supermercado]) bySuper[row.supermercado] =[];
       bySuper[row.supermercado].push({ precio: parseFloat(row.precio), fecha: row.fecha_registro });
     });
     const stats = Object.entries(bySuper).map(([s, rows]) => {
@@ -1058,8 +1059,7 @@ app.get('/api/maestros/buscar', auth, async (req, res) => {
   const q = `%${req.query.q || ''}%`;
   try {
     const [rows] = await dbPool.execute(
-      'SELECT id, nombre, marca, categoria, foto_url, codigo_barras FROM productos_maestros WHERE nombre LIKE ? OR marca LIKE ? ORDER BY (foto_url IS NOT NULL) DESC LIMIT 10',
-      [q, q]
+      'SELECT id, nombre, marca, categoria, foto_url, codigo_barras FROM productos_maestros WHERE nombre LIKE ? OR marca LIKE ? ORDER BY (foto_url IS NOT NULL) DESC LIMIT 10',[q, q]
     );
     res.json(rows);
   } catch (e) { res.status(500).json([]); }
@@ -1067,7 +1067,7 @@ app.get('/api/maestros/buscar', auth, async (req, res) => {
 
 // ── Open Food Facts ───────────────────────────────────────────
 function mapOffProducts(data) {
-  const products = Array.isArray(data?.products) ? data.products : [];
+  const products = Array.isArray(data?.products) ? data.products :[];
   return products.map(p => {
     const nombre = (p.product_name_es || p.product_name || p.generic_name_es || p.generic_name || '').trim();
     if (!nombre) return null;
@@ -1112,7 +1112,7 @@ function buildOpfLookupUrl(ean) { return opfUrl(`${OPF_LOOKUP_PATH.replace(/\/+$
 async function persistOpfFile(file) {
   if (!file) return null;
   const ext     = path.extname(file.originalname || '').toLowerCase();
-  const allowed = ['.jpg', '.jpeg', '.png', '.webp'];
+  const allowed =['.jpg', '.jpeg', '.png', '.webp'];
   const safeExt = allowed.includes(ext) ? ext : (file.mimetype === 'image/png' ? '.png' : '.jpg');
   const filename     = `opf_${Date.now()}_${crypto.randomUUID()}${safeExt}`;
   const relativePath = path.join('private', 'opf_uploads', filename);
@@ -1159,10 +1159,10 @@ async function upsertProductoMaestroFromOpf({ ean, nombre, marca, foto_url }) {
   if (!eanClean || !nombreClean) return null;
 
   const [[existing]] = await dbPool.execute(
-    'SELECT id, nombre, marca, foto_url FROM productos_maestros WHERE codigo_barras = ? LIMIT 1', [eanClean]
+    'SELECT id, nombre, marca, foto_url FROM productos_maestros WHERE codigo_barras = ? LIMIT 1',[eanClean]
   );
   if (existing) {
-    const updates = []; const params = [];
+    const updates = []; const params =[];
     if (!existing.nombre  && nombreClean) { updates.push('nombre = ?');   params.push(nombreClean); }
     if (!existing.marca   && marcaClean)  { updates.push('marca = ?');    params.push(marcaClean); }
     if (!existing.foto_url && fotoClean)  { updates.push('foto_url = ?'); params.push(fotoClean); }
@@ -1173,8 +1173,7 @@ async function upsertProductoMaestroFromOpf({ ean, nombre, marca, foto_url }) {
     return existing.id;
   }
   const [ins] = await dbPool.execute(
-    'INSERT INTO productos_maestros (nombre, marca, categoria, foto_url, codigo_barras) VALUES (?,?,?,?,?)',
-    [nombreClean, marcaClean, 'Alimentacion', fotoClean, eanClean]
+    'INSERT INTO productos_maestros (nombre, marca, categoria, foto_url, codigo_barras) VALUES (?,?,?,?,?)',[nombreClean, marcaClean, 'Alimentacion', fotoClean, eanClean]
   );
   return ins.insertId;
 }
@@ -1184,7 +1183,7 @@ app.get('/api/proxy/off', auth, async (req, res) => {
   try {
     const q = (req.query.q || '').trim();
     if (!q) return res.json([]);
-    const candidates = [
+    const candidates =[
       { name: 'direct-org',     url: OFF_SEARCH_URL,    timeout: timeoutMs },
       { name: 'direct-net',     url: OFF_SECONDARY_URL, timeout: timeoutMs },
       { name: 'nginx-fallback', url: OFF_FALLBACK_URL,  timeout: timeoutMs + 2000 },
@@ -1275,8 +1274,7 @@ app.post('/api/opf/create', auth, (req, res) => {
         localProductId = await upsertProductoMaestroFromOpf({ ean, nombre, marca, foto_url: null });
       } catch (e) { console.warn('[OPF] Pendiente local fallido:', e.message); }
       const [pend] = await dbPool.execute(
-        `INSERT INTO opf_pendientes (id_usuario, ean, nombre, marca, foto_path) VALUES (?,?,?,?,?)`,
-        [req.session.usuario.id, ean, nombre, marca, fotoPath]
+        `INSERT INTO opf_pendientes (id_usuario, ean, nombre, marca, foto_path) VALUES (?,?,?,?,?)`,[req.session.usuario.id, ean, nombre, marca, fotoPath]
       );
       return res.json({ success: true, pending: true, pending_id: pend.insertId, local_product_id: localProductId });
     }
@@ -1300,8 +1298,7 @@ app.post('/api/opf/create', auth, (req, res) => {
     catch (e) { console.warn('[OPF] Import local fallido:', e.message); }
 
     const [result] = await dbPool.execute(
-      `INSERT INTO opf_drafts (id_usuario, ean, nombre, marca, foto_path, estado, opf_response, error_msg) VALUES (?,?,?,?,?,?,?,?)`,
-      [req.session.usuario.id, ean, nombre, marca, fotoPath, estado,
+      `INSERT INTO opf_drafts (id_usuario, ean, nombre, marca, foto_path, estado, opf_response, error_msg) VALUES (?,?,?,?,?,?,?,?)`,[req.session.usuario.id, ean, nombre, marca, fotoPath, estado,
         opfResponse ? JSON.stringify(opfResponse).slice(0, 4000) : null,
         errorMsg ? errorMsg.slice(0, 500) : null]
     );
@@ -1333,8 +1330,7 @@ app.post('/api/compras/vincular', auth, async (req, res) => {
       if (existe.length > 0) { idMaestroOficial = existe[0].id; }
       else {
         const [ins] = await conn.execute(
-          'INSERT INTO productos_maestros (nombre, marca, categoria, foto_url, codigo_barras) VALUES (?,?,?,?,?)',
-          [producto_externo.nombre.toUpperCase(), (producto_externo.marca || 'Genérica').toUpperCase(), 'Alimentacion', producto_externo.foto_url, barcode]
+          'INSERT INTO productos_maestros (nombre, marca, categoria, foto_url, codigo_barras) VALUES (?,?,?,?,?)',[producto_externo.nombre.toUpperCase(), (producto_externo.marca || 'Genérica').toUpperCase(), 'Alimentacion', producto_externo.foto_url, barcode]
         );
         idMaestroOficial = ins.insertId;
       }
@@ -1350,10 +1346,10 @@ app.post('/api/compras/vincular', auth, async (req, res) => {
 
     if (idMaestroBasura && idMaestroBasura !== idMaestroOficial) {
       await conn.execute(`UPDATE compras SET id_producto = ?, curado = 1 WHERE id_producto = ?`, [idMaestroOficial, idMaestroBasura]);
-      await conn.execute(`UPDATE historial_precios SET id_producto = ? WHERE id_producto = ?`, [idMaestroOficial, idMaestroBasura]);
+      await conn.execute(`UPDATE historial_precios SET id_producto = ? WHERE id_producto = ?`,[idMaestroOficial, idMaestroBasura]);
       try { await conn.execute(`DELETE FROM productos_maestros WHERE id = ?`, [idMaestroBasura]); } catch {}
     } else {
-      await conn.execute('UPDATE compras SET id_producto = ?, curado = 1 WHERE id = ?', [idMaestroOficial, id_compra]);
+      await conn.execute('UPDATE compras SET id_producto = ?, curado = 1 WHERE id = ?',[idMaestroOficial, id_compra]);
     }
 
     if (barcode) {
@@ -1390,13 +1386,12 @@ app.post('/api/compras/:idCompra/desvincular', auth, async (req, res) => {
     if (!compra) { await conn.rollback(); return res.status(404).json({ error: 'Compra no encontrada' }); }
 
     const nombreBase = (compra.nombre_original || 'Producto sin vincular').trim().toUpperCase();
-    const [ins] = await conn.execute('INSERT INTO productos_maestros (nombre, marca, categoria) VALUES (?,?,?)', [nombreBase.slice(0, 200), 'Generica', 'Otros']);
+    const [ins] = await conn.execute('INSERT INTO productos_maestros (nombre, marca, categoria) VALUES (?,?,?)',[nombreBase.slice(0, 200), 'Generica', 'Otros']);
     await conn.execute('UPDATE compras SET id_producto = ?, curado = 0 WHERE id = ?', [ins.insertId, idCompra]);
 
     if (compra.id_producto) {
       await conn.execute(
-        `INSERT INTO verificaciones_producto (id_producto, id_usuario, motivo) VALUES (?,?,?)`,
-        [compra.id_producto, uid, 'Desvinculado por usuario']
+        `INSERT INTO verificaciones_producto (id_producto, id_usuario, motivo) VALUES (?,?,?)`,[compra.id_producto, uid, 'Desvinculado por usuario']
       );
     }
     await conn.commit();
@@ -1442,11 +1437,11 @@ app.post('/api/verificaciones/admin', auth, adminOnly, async (req, res) => {
     if (!verif || verif.estado !== 'pendiente') { await conn.rollback(); return res.status(404).json({ error: 'Verificación no encontrada o ya cerrada' }); }
 
     if (accion === 'aprobar') {
-      await conn.execute("UPDATE verificaciones_barcode SET estado = 'verificado' WHERE id = ?", [idVerificacion]);
+      await conn.execute("UPDATE verificaciones_barcode SET estado = 'verificado' WHERE id = ?",[idVerificacion]);
       await conn.execute('UPDATE productos_maestros SET codigo_barras = ? WHERE id = ?', [verif.codigo_barras, verif.id_producto]);
     } else {
       await conn.execute("UPDATE verificaciones_barcode SET estado = 'rechazado' WHERE id = ?", [idVerificacion]);
-      await conn.execute('UPDATE productos_maestros SET codigo_barras = NULL WHERE id = ? AND codigo_barras = ?', [verif.id_producto, verif.codigo_barras]);
+      await conn.execute('UPDATE productos_maestros SET codigo_barras = NULL WHERE id = ? AND codigo_barras = ?',[verif.id_producto, verif.codigo_barras]);
     }
     await conn.commit();
     res.json({ success: true, estado: accion === 'aprobar' ? 'verificado' : 'rechazado' });
@@ -1467,8 +1462,7 @@ app.post('/api/verificaciones/admin/crear', auth, adminOnly, async (req, res) =>
     if (!prod) { await conn.rollback(); return res.status(404).json({ error: 'Producto no encontrado' }); }
     await conn.execute('UPDATE productos_maestros SET codigo_barras = ? WHERE id = ?', [codigo, idProducto]);
     await conn.execute(
-      `INSERT INTO verificaciones_barcode (id_producto, codigo_barras, votos_si) VALUES (?,?,0) ON DUPLICATE KEY UPDATE estado = 'pendiente'`,
-      [idProducto, codigo]
+      `INSERT INTO verificaciones_barcode (id_producto, codigo_barras, votos_si) VALUES (?,?,0) ON DUPLICATE KEY UPDATE estado = 'pendiente'`,[idProducto, codigo]
     );
     await conn.commit();
     res.json({ success: true });
@@ -1498,10 +1492,10 @@ app.post('/api/opf/pending/approve', auth, adminOnly, async (req, res) => {
         imagenRes = await enviarOpfImagen({ ean: pend.ean, file: { buffer, originalname: path.basename(pend.foto_path), mimetype } });
       }
       opfResponse = { producto: productoRes, imagen: imagenRes };
-      await conn.execute("UPDATE opf_pendientes SET estado = 'enviado', opf_response = ?, error_msg = NULL WHERE id = ?", [JSON.stringify(opfResponse).slice(0, 4000), idPendiente]);
+      await conn.execute("UPDATE opf_pendientes SET estado = 'enviado', opf_response = ?, error_msg = NULL WHERE id = ?",[JSON.stringify(opfResponse).slice(0, 4000), idPendiente]);
     } catch (e) {
       errorMsg = e.message || 'Error enviando a OPF';
-      await conn.execute("UPDATE opf_pendientes SET estado = 'fallido', error_msg = ? WHERE id = ?", [errorMsg.slice(0, 500), idPendiente]);
+      await conn.execute("UPDATE opf_pendientes SET estado = 'fallido', error_msg = ? WHERE id = ?",[errorMsg.slice(0, 500), idPendiente]);
     }
     await conn.commit();
     if (errorMsg) return res.status(502).json({ error: errorMsg });
@@ -1542,7 +1536,7 @@ app.post('/api/verificaciones/producto/admin', auth, adminOnly, async (req, res)
     } else if (accion === 'desvincular') {
       await conn.execute("UPDATE verificaciones_producto SET estado = 'desvinculado' WHERE id = ?", [idVerificacion]);
       await conn.execute('DELETE FROM diccionario_productos WHERE id_producto_maestro = ?', [verif.id_producto]);
-      await conn.execute('UPDATE compras SET id_producto = NULL, curado = 0 WHERE id_producto = ?', [verif.id_producto]);
+      await conn.execute('UPDATE compras SET id_producto = NULL, curado = 0 WHERE id_producto = ?',[verif.id_producto]);
     } else {
       await conn.execute("UPDATE verificaciones_producto SET estado = 'rechazado' WHERE id = ?", [idVerificacion]);
     }
@@ -1568,8 +1562,7 @@ app.delete('/api/compra/:idCompra', auth, async (req, res) => {
       `SELECT c.id, c.id_tiquet
        FROM compras c
        JOIN tiquets t ON t.id = c.id_tiquet
-       WHERE c.id = ? AND c.id_usuario = ?`,
-      [idCompra, uid]
+       WHERE c.id = ? AND c.id_usuario = ?`,[idCompra, uid]
     );
     if (!compra) {
       await conn.rollback();
@@ -1582,8 +1575,7 @@ app.delete('/api/compra/:idCompra', auth, async (req, res) => {
     // Recalcular y actualizar el total del tiquet
     const [[{ nuevo_total }]] = await conn.execute(
       `SELECT COALESCE(SUM(cantidad * precio_unitario), 0) AS nuevo_total
-       FROM compras WHERE id_tiquet = ?`,
-      [compra.id_tiquet]
+       FROM compras WHERE id_tiquet = ?`,[compra.id_tiquet]
     );
     await conn.execute(
       'UPDATE tiquets SET total_tiquet = ? WHERE id = ?',
@@ -1614,7 +1606,7 @@ app.post('/api/compra/:idCompra/precio', auth, async (req, res) => {
       SELECT c.id, c.id_tiquet, c.id_producto, c.cantidad, c.precio_unitario, c.es_descuento, t.supermercado
       FROM compras c JOIN tiquets t ON t.id = c.id_tiquet
       WHERE c.id = ? AND c.id_usuario = ?
-    `, [idCompra, uid]);
+    `,[idCompra, uid]);
     if (!compra) { await conn.rollback(); return res.status(404).json({ error: 'Compra no encontrada' }); }
 
     await conn.execute('UPDATE compras SET precio_unitario = ? WHERE id = ?', [nuevoPrecio, idCompra]);
@@ -1627,7 +1619,7 @@ app.post('/api/compra/:idCompra/precio', auth, async (req, res) => {
     const [[{ nuevo_total }]] = await conn.execute(
       `SELECT COALESCE(SUM(cantidad * precio_unitario), 0) AS nuevo_total FROM compras WHERE id_tiquet = ?`, [compra.id_tiquet]
     );
-    await conn.execute('UPDATE tiquets SET total_tiquet = ? WHERE id = ?', [nuevo_total, compra.id_tiquet]);
+    await conn.execute('UPDATE tiquets SET total_tiquet = ? WHERE id = ?',[nuevo_total, compra.id_tiquet]);
     await conn.commit();
     res.json({ success: true, nuevo_precio: nuevoPrecio, nuevo_total });
   } catch (e) { await conn.rollback(); console.error('[EditarPrecio]', e.message); res.status(500).json({ error: e.message }); }
@@ -1641,7 +1633,7 @@ app.get('/perfil', auth, async (req, res) => {
   try {
     const uid = req.session.usuario.id;
     const [[userDb]] = await dbPool.execute('SELECT email, totp_enabled FROM usuarios WHERE id = ?', [uid]);
-    const [historial, totales] = await Promise.all([getTiquets(uid), getTotalesPeriodo(uid)]);
+    const[historial, totales] = await Promise.all([getTiquets(uid), getTotalesPeriodo(uid)]);
     const messages = [];
     if (req.query.success) messages.push(['success', decodeURIComponent(req.query.success)]);
     if (req.query.error)   messages.push(['danger',  decodeURIComponent(req.query.error)]);
@@ -1661,12 +1653,12 @@ app.post('/perfil', auth, async (req, res) => {
     if (password_actual && nueva_password) {
       if (!bcryptjs.compareSync(password_actual, user.password_hash)) msgs.push(['danger', 'Contraseña actual incorrecta.']);
       else if (nueva_password.length < 8)                             msgs.push(['danger', 'Mínimo 8 caracteres.']);
-      else { await dbPool.execute('UPDATE usuarios SET password_hash=? WHERE id=?', [bcryptjs.hashSync(nueva_password, 12), uid]); msgs.push(['success', 'Contraseña cambiada.']); }
+      else { await dbPool.execute('UPDATE usuarios SET password_hash=? WHERE id=?',[bcryptjs.hashSync(nueva_password, 12), uid]); msgs.push(['success', 'Contraseña cambiada.']); }
     }
   } catch (e) { msgs.push(['danger', 'Error al actualizar.']); }
   try {
     const [[userDb]] = await dbPool.execute('SELECT email, totp_enabled FROM usuarios WHERE id = ?', [uid]);
-    const [historial, totales] = await Promise.all([getTiquets(uid), getTotalesPeriodo(uid)]);
+    const[historial, totales] = await Promise.all([getTiquets(uid), getTotalesPeriodo(uid)]);
     res.render('perfil.html', { ...navLocals(req), email: userDb.email || '', totp_enabled: userDb.totp_enabled === 1, total_tiquets: historial.length, total_gastado: totales.total, messages: msgs });
   } catch (e) { res.redirect('/dashboard'); }
 });
@@ -1691,7 +1683,7 @@ app.post('/perfil/avatar', auth, (req, res) => {
       const url   = `/avatars/${finalFilename}`;
       const [[u]] = await dbPool.execute('SELECT avatar FROM usuarios WHERE id=?', [req.session.usuario.id]);
       if (u?.avatar?.startsWith('/avatars/')) { const old = path.join(__dirname, 'public', u.avatar); if (fs.existsSync(old)) fs.unlink(old, () => {}); }
-      await dbPool.execute('UPDATE usuarios SET avatar=? WHERE id=?', [url, req.session.usuario.id]);
+      await dbPool.execute('UPDATE usuarios SET avatar=? WHERE id=?',[url, req.session.usuario.id]);
       req.session.usuario.avatar = url;
       res.json({ success: true, avatar: url });
     } catch (e) {
@@ -1712,7 +1704,7 @@ app.post('/perfil/eliminar_cuenta', auth, async (req, res) => {
     if (!u) { await conn.rollback(); return res.redirect('/login'); }
     if (!bcryptjs.compareSync(password_borrado, u.password_hash)) { await conn.rollback(); return res.redirect('/perfil?error=Contraseña+incorrecta.+Operación+cancelada.'); }
     if (u.avatar?.startsWith('/avatars/')) { const p = path.join(__dirname, 'public', u.avatar); if (fs.existsSync(p)) fs.unlinkSync(p); }
-    await conn.execute('DELETE FROM compras              WHERE id_usuario=?', [uid]);
+    await conn.execute('DELETE FROM compras              WHERE id_usuario=?',[uid]);
     await conn.execute('DELETE FROM tiquets              WHERE id_usuario=?', [uid]);
     await conn.execute('DELETE FROM codigos_recuperacion WHERE id_usuario=?', [uid]);
     await conn.execute('DELETE FROM usuarios             WHERE id=?',         [uid]);
@@ -1731,7 +1723,7 @@ app.get('/perfil/2fa/setup', auth, async (req, res) => {
   req.session.totp_setup_secret = secret.base32;
   const formattedSecret = secret.base32.match(/.{1,4}/g).join(' ');
   const qrDataUrl       = await QRCode.toDataURL(secret.otpauth_url);
-  res.render('perfil_2fa_setup.html', { usuario: req.session.usuario.username, qr: qrDataUrl, secret_manual: formattedSecret, messages: [] });
+  res.render('perfil_2fa_setup.html', { usuario: req.session.usuario.username, qr: qrDataUrl, secret_manual: formattedSecret, messages:[] });
 });
 
 app.post('/perfil/2fa/setup', auth, async (req, res) => {
@@ -1746,7 +1738,7 @@ app.post('/perfil/2fa/setup', auth, async (req, res) => {
   const conn = await dbPool.getConnection();
   try {
     await conn.beginTransaction();
-    await conn.execute('UPDATE usuarios SET totp_secret=?, totp_enabled=1 WHERE id=?', [encryptedSecret, req.session.usuario.id]);
+    await conn.execute('UPDATE usuarios SET totp_secret=?, totp_enabled=1 WHERE id=?',[encryptedSecret, req.session.usuario.id]);
     await conn.execute('DELETE FROM codigos_recuperacion WHERE id_usuario=?', [req.session.usuario.id]);
     for (const hash of hashedCodes) await conn.execute('INSERT INTO codigos_recuperacion (id_usuario, codigo_hash) VALUES (?,?)', [req.session.usuario.id, hash]);
     await conn.commit();
