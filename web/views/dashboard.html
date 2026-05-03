@@ -228,6 +228,25 @@ document.addEventListener('click', e => {
   if (w && !w.contains(e.target)) document.getElementById('userDropdown').classList.remove('open');
 });
 
+// ── Validación de tipo de archivo (MIME + extensión)
+// Los selectores de archivo en móvil (Android/iOS) pueden reportar
+// image/jpg, application/octet-stream o incluso cadena vacía.
+// Validamos también por extensión como fallback.
+const ALLOWED_MIME = new Set([
+  'image/jpeg', 'image/jpg',           // Android picker a veces manda image/jpg
+  'image/png', 'image/webp', 'image/gif',
+  'application/pdf',
+  'application/octet-stream',          // picker genérico en móvil
+]);
+const ALLOWED_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.pdf']);
+
+function esArchivoValido(file) {
+  if (!file) return false;
+  const mime = (file.type || '').toLowerCase().trim();
+  const ext  = '.' + (file.name || '').split('.').pop().toLowerCase();
+  return ALLOWED_MIME.has(mime) || ALLOWED_EXT.has(ext);
+}
+
 // ── Drag & Drop ────────────────────────────────────────────────
 const dropZone  = document.getElementById('dropZone');
 const fileInput = document.getElementById('fotoTiquet');
@@ -247,8 +266,7 @@ dropZone.addEventListener('drop', e => {
   e.preventDefault(); resetDropZone();
   const file = e.dataTransfer?.files?.[0];
   if (!file) return;
-  const ALLOWED = ['image/jpeg','image/png','image/webp','image/gif','application/pdf'];
-  if (!ALLOWED.includes(file.type)) { alert('Formato no permitido.'); return; }
+  if (!esArchivoValido(file)) { alert('Formato no permitido.'); return; }
   const dt = new DataTransfer(); dt.items.add(file); fileInput.files = dt.files;
   iniciarAnalisis();
 });
@@ -259,7 +277,14 @@ function resetDropZone() {
   document.getElementById('dropSubtitle').textContent = 'Arrastra una imagen o PDF aquí, o haz clic para seleccionar';
 }
 function iniciarAnalisis() {
-  if (!fileInput.files.length) return;
+  const file = fileInput.files[0];
+  if (!file) return;
+  // Validar también cuando el archivo viene del picker nativo (no solo del drop)
+  if (!esArchivoValido(file)) {
+    alert('Formato no permitido. Usa JPG, PNG, WEBP o PDF.');
+    fileInput.value = '';
+    return;
+  }
   document.getElementById('loadingOverlay').classList.add('visible');
   const steps = ['step1','step2','step3']; let i = 0;
   const iv = setInterval(() => {

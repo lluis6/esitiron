@@ -150,6 +150,12 @@ body.edit-precios .edit-hint { display: inline; }
   display: flex; align-items: center; gap: 4px;
 }
 
+.table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 /* ── Visibilidad de celdas (sistema unificado con tiquet_preview) */
 .col-actions,
 .cell-editable { display: none !important; }

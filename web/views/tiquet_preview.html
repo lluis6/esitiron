@@ -103,13 +103,13 @@
         <table id="tablaProductos">
           <thead>
             <tr>
-              <th style="width:70px;">Cant.</th>
-              <th style="width:120px;">Marca</th>
+              <th>Cant.</th>
+              <th>Marca</th>
               <th>Producto</th>
-              <th style="width:120px;">Categoría</th>
-              <th class="right" style="width:90px;">Precio €</th>
-              <th class="right" style="width:90px;">Subtotal</th>
-              <th class="col-actions" style="width:40px;"></th>
+              <th>Categoría</th>
+              <th class="right">Precio €</th>
+              <th class="right">Subtotal</th>
+              <th class="col-actions"></th>
             </tr>
           </thead>
           <tbody id="tbodyProductos">
@@ -145,7 +145,7 @@
               <td class="cell-static"><span class="{{ 'cat-pill-red' if p.es_descuento else 'cat-pill' }}">{{ p.categoria }}</span></td>
               <td class="cell-editable" style="display:none;">
                 <select name="productos[{{ loop.index0 }}][categoria]" class="edit-input" onchange="onCategoriaChange(this)">
-                  {% for cat in ["Alimentacion", "Bebidas", "Higiene", "Hogar", "Mascotas", "Ropa", "Electronica", "Fruta/Verdura", "Descuento", "Otros"] %}
+                  {% for cat in["Alimentacion", "Bebidas", "Higiene", "Hogar", "Mascotas", "Ropa", "Electronica", "Fruta/Verdura", "Descuento", "Otros"] %}
                     <option value="{{ cat }}" {% if p.categoria == cat %}selected{% endif %}>{{ cat }}</option>
                   {% endfor %}
                 </select>

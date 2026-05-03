@@ -321,9 +321,22 @@ const uploadTiquet = multer({
   storage: multer.memoryStorage(),
   limits:  { fileSize: 15 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
-    const ALLOWED = ['image/jpeg','image/png','image/webp','image/gif','application/pdf'];
-    if (ALLOWED.includes(file.mimetype)) cb(null, true);
-    else cb(new Error('Formato no permitido.'));
+    // Normalizar variantes de MIME que mandan algunos móviles
+    const mime = (file.mimetype || '').toLowerCase().trim();
+    const ALLOWED = [
+      'image/jpeg', 'image/jpg',          // Android a veces manda image/jpg
+      'image/png', 'image/webp', 'image/gif',
+      'application/pdf',
+      'application/octet-stream',          // iOS/Android picker genérico
+    ];
+    // También aceptar por extensión cuando el MIME llega vacío o genérico
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    const ALLOWED_EXT = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.pdf'];
+    if (ALLOWED.includes(mime) || ALLOWED_EXT.includes(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Formato no permitido.'));
+    }
   },
 });
 

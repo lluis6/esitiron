@@ -103,6 +103,13 @@ tr.fila-descuento td { background: rgba(239,68,68,0.04); }
 }
 .btn-add-row:hover { border-color: var(--accent); color: var(--accent); }
 
+/* ── Contenedor de la tabla responsivo ──────────────────────────────────── */
+.table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 /* ── Visibilidad columnas (modo lectura / edición) ──────────────────────── */
 .col-actions,
 .cell-editable { display: none !important; }
@@ -112,12 +119,12 @@ body.edit-mode .cell-editable { display: table-cell !important; }
 body.edit-mode .cell-static   { display: none    !important; }
 body.edit-mode .btn-add-row   { display: inline-flex; }
 
-    .input-blocked {
-      opacity: 0.6;
-      cursor: not-allowed;
-      background-color: rgba(0,0,0,0.05) !important;
-    }
-    .texto-rojo {
-      color: #ff4444 !important;
-      font-weight: 600;
-    }
+.input-blocked {
+  opacity: 0.6;
+  cursor: not-allowed;
+  background-color: rgba(0,0,0,0.05) !important;
+}
+.texto-rojo {
+  color: #ff4444 !important;
+  font-weight: 600;
+}
