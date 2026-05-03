@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="/css/main.css">
   <link rel="stylesheet" href="/css/class/perfil.css">
   <link rel="icon" type="image/png" href="/img/logo.jpg">
+  <link rel="stylesheet" href="/css/responsive.css">
 </head>
 <body>
 
@@ -15,18 +16,20 @@
   <div class="nav-links">
     <a href="/dashboard" class="nav-link">📊 Dashboard</a>
     <a href="/tiquets"   class="nav-link">🧾 Tiquets</a>
-    <a href="/productos" class="nav-link active">🛍️  Productos</a>
+    <!-- Corregido: Ya no tiene la clase "active" -->
+    <a href="/productos" class="nav-link">🛍️ Productos</a>
     <a href="/grupos"    class="nav-link">👥 Grupos</a>
   </div>
   <div class="nav-right">
     <div class="user-menu-wrap" id="userMenuWrap">
-      <div class="nav-user" id="userTrigger" onclick="toggleMenu()">
+      <!-- Corregido: Se añade estilo inline para marcar el perfil como activo -->
+      <div class="nav-user" id="userTrigger" onclick="toggleMenu()" style="border-color: var(--accent); color: var(--accent); background: var(--accent-lt);">
         {% if avatar_url %}
           <img src="{{ avatar_url }}" class="avatar" style="object-fit:cover;" alt="avatar">
         {% else %}
           <div class="avatar">{{ usuario[0] | upper }}</div>
         {% endif %}
-        <span class="nav-username">{{ usuario }}</span>
+        <span class="nav-username" style="font-weight: 700;">{{ usuario }}</span>
       </div>
       <div class="user-dropdown" id="userDropdown">
         <div class="ud-header"><div class="ud-name">{{ usuario }}</div></div>

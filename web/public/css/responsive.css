@@ -1,0 +1,253 @@
+/* ================================================================
+   ESÍTIRON — responsive.css (Versión Final Definitiva)
+   Menú Auto-Scroll, Flecha Inteligente, Tarjetas y Bottom Sheets
+================================================================ */
+
+/* SOLO AFECTA A MÓVILES Y TABLETS */
+@media screen and (max-width: 850px) {
+
+    /* 1. ESTRUCTURA BASE Y ANTI-ZOOM */
+    html, body {
+        width: 100% !important;
+        max-width: 100% !important;
+        overflow-x: hidden !important;
+        -webkit-text-size-adjust: 100% !important;
+    }
+
+    input, select, textarea, .search-input {
+        font-size: 16px !important; 
+    }
+
+    /* 2. NAVBAR DESLIZABLE SEGURO */
+    .navbar {
+        display: flex !important;
+        flex-direction: row !important;
+        flex-wrap: nowrap !important;
+        justify-content: space-between !important;
+        align-items: center !important;
+        width: 100% !important;
+        height: 64px !important;
+        padding: 0 15px !important;
+        position: relative !important;
+        overflow: visible !important;
+    }
+
+    /* Enlaces con Scroll Horizontal, Imán (Snap) y Difuminado */
+    .nav-links {
+        display: flex !important;
+        flex-direction: row !important;
+        align-items: center !important;
+        flex: 1 1 auto !important; 
+        min-width: 0 !important; 
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        scrollbar-width: none !important;
+        gap: 8px !important;
+        padding-right: 15px !important;
+        position: relative !important;
+        /* Difumina el borde derecho para que las palabras no se corten */
+        -webkit-mask-image: linear-gradient(to right, rgba(0,0,0,1) 85%, rgba(0,0,0,0) 100%);
+        mask-image: linear-gradient(to right, rgba(0,0,0,1) 85%, rgba(0,0,0,0) 100%);
+        scroll-snap-type: x mandatory !important;
+    }
+    .nav-links::-webkit-scrollbar { display: none !important; }
+
+    .nav-links a, .nav-links .nav-link {
+        display: inline-block !important; 
+        font-size: 15px !important;
+        padding: 8px 12px !important;
+        white-space: nowrap !important;
+        word-spacing: 4px !important; 
+        line-height: 1.2 !important;
+        scroll-snap-align: start !important;
+    }
+
+    /* Avatar, Luna y FLECHA PERSISTENTE */
+    .nav-right {
+        display: flex !important;
+        flex: 0 0 auto !important; 
+        align-items: center !important;
+        gap: 10px !important;
+        margin-left: auto !important;
+        padding-left: 5px !important;
+        background: transparent !important; /* CRUCIAL: Evita que tape la flecha */
+    }
+
+    /* Flecha insertada como elemento físico (imposible de ocultar) */
+    .nav-right::before {
+        content: '›';
+        display: block;
+        font-size: 32px;
+        color: var(--text3);
+        margin-right: 0px;
+        margin-top: -4px; /* Centrado óptico */
+        animation: pulseArrow 1.5s infinite ease-in-out;
+    }
+
+    @keyframes pulseArrow {
+        0%, 100% { transform: translateX(0); opacity: 0.2; }
+        50% { transform: translateX(4px); opacity: 1; }
+    }
+
+    .nav-username { display: none !important; }
+
+    /* 3. MENÚ DESPLEGABLE DEL PERFIL */
+    .user-menu-wrap { position: relative !important; }
+    .user-dropdown {
+        position: absolute !important;
+        top: 100% !important; 
+        right: 0 !important;
+        left: auto !important;
+        margin-top: 15px !important;
+        z-index: 10000 !important;
+        min-width: 180px !important;
+    }
+
+    /* 4. BUSCADORES Y FILTROS ESTATICOS Y LIMPIOS */
+    .tiquets-toolbar-left, .filtros-form {
+        display: flex !important;
+        flex-wrap: wrap !important;
+        width: 100% !important;
+        gap: 10px !important;
+        align-items: center !important;
+        margin-bottom: 10px !important;
+    }
+
+    .search-tiquets, .search-input {
+        flex: 1 1 100% !important;
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+
+    .sort-select, .filter-select {
+        flex: 1 1 calc(33.33% - 10px) !important;
+        min-width: 90px !important;
+        padding-left: 8px !important;
+        padding-right: 8px !important;
+        text-overflow: ellipsis !important;
+    }
+
+    .results-info {
+        display: block !important;
+        text-align: right !important;
+        font-size: 0.85rem !important;
+        margin-top: 4px !important;
+        color: var(--text3) !important;
+        width: 100% !important;
+    }
+
+    /* 5. TRANSFORMACIÓN DE TABLAS A TARJETAS MÓVILES */
+    .table-container {
+        display: block !important;
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+        padding: 0 !important;
+    }
+
+    .table-container table { display: block !important; width: 100% !important; }
+    .table-container thead { display: none !important; }
+    
+    .table-container tbody {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 1.25rem !important; 
+    }
+
+    .table-container tr {
+        display: flex !important;
+        flex-direction: column !important;
+        background: var(--surface) !important;
+        border: 1px solid var(--border) !important;
+        border-radius: var(--radius) !important;
+        padding: 1.25rem !important;
+        box-shadow: var(--shadow) !important;
+    }
+
+    .table-container td {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        padding: 0.6rem 0 !important;
+        border: none !important;
+        border-bottom: 1px dashed var(--border) !important;
+        font-size: 0.9rem !important;
+        text-align: right !important;
+    }
+
+    .table-container td:last-child {
+        border-bottom: none !important;
+        padding-bottom: 0 !important;
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 0.5rem !important;
+        margin-top: 0.5rem !important;
+    }
+
+    .table-container td:nth-child(1) {
+        border-bottom: 1px solid var(--border) !important;
+        padding-bottom: 1rem !important;
+        padding-top: 0 !important;
+        margin-bottom: 0.5rem !important;
+        justify-content: flex-start !important;
+        text-align: left !important;
+    }
+
+    .producto-row td:nth-child(2)::before { content: 'Tienda:'; font-weight: 600; color: var(--text2); }
+    .producto-row td:nth-child(3)::before { content: 'Precio:'; font-weight: 600; color: var(--text2); }
+    .producto-row td:nth-child(4)::before { content: 'Estado:'; font-weight: 600; color: var(--text2); }
+
+    .verif-row td:nth-child(2)::before { content: 'Info:'; font-weight: 600; color: var(--text2); }
+    .verif-row td:nth-child(3)::before { content: 'Estado:'; font-weight: 600; color: var(--text2); }
+    .verif-row td:nth-child(4)::before { content: 'Fecha:'; font-weight: 600; color: var(--text2); }
+
+    .btn-acciones-wrap, .verif-actions {
+        display: flex !important;
+        flex-wrap: wrap !important;
+        gap: 0.5rem !important;
+        width: 100% !important;
+    }
+
+    .btn-accion {
+        flex: 1 1 45% !important;
+        justify-content: center !important;
+        padding: 0.65rem !important;
+    }
+
+    /* 6. PANELES LATERALES A "BOTTOM SHEETS" */
+    .panel-lateral {
+        top: auto !important;
+        bottom: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        height: 85vh !important;
+        border-radius: 24px 24px 0 0 !important; 
+        border-left: none !important;
+        transform: translateY(100%) !important; 
+        transition: transform 0.35s cubic-bezier(0.32, 0.72, 0, 1) !important;
+        z-index: 10000 !important;
+    }
+
+    .panel-lateral.open {
+        transform: translateY(0) !important;
+    }
+
+    .panel-lateral::before {
+        content: '';
+        display: block;
+        width: 40px;
+        height: 5px;
+        background: var(--border2);
+        border-radius: 10px;
+        margin: 12px auto -5px auto;
+        flex-shrink: 0;
+    }
+
+    main, .main {
+        padding: 15px !important;
+        padding-bottom: 40px !important;
+    }
+}
