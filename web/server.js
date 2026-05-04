@@ -1686,6 +1686,24 @@ app.post('/api/compra/:idCompra/precio', auth, async (req, res) => {
   finally { conn.release(); }
 });
 
+app.post('/api/tiquet/:uuid/supermercado', auth, async (req, res) => {
+  const uid  = req.session.usuario.id;
+  const nuevo = sanitizarTexto(req.body.supermercado, 100);
+  if (!nuevo) return res.status(400).json({ error: 'Nombre inválido' });
+  const normalizado = normalizarTienda(nuevo);
+  try {
+    const [r] = await dbPool.execute(
+      'UPDATE tiquets SET supermercado = ? WHERE uuid = ? AND id_usuario = ?',
+      [normalizado, req.params.uuid, uid]
+    );
+    if (r.affectedRows === 0) return res.status(404).json({ error: 'Tiquet no encontrado' });
+    res.json({ success: true, supermercado: normalizado });
+  } catch (e) {
+    console.error('[EditarSupermercado]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ════════════════════════════════════════════════════════════
 // PERFIL
 // ════════════════════════════════════════════════════════════

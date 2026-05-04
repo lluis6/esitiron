@@ -484,17 +484,19 @@ async function eliminarGrupo(id) {
 }
 
 async function salirGrupo(id) {
+  if (!confirm('¿Seguro que quieres salir de este grupo?')) return;
   try {
     const res = await fetch(`/api/grupos/${id}/miembros/me`, { method: 'DELETE' });
-    if (res.ok || res.status === 200) {
+    if (res.ok) {
       showToast('Has salido del grupo');
       cerrarPanel();
       setTimeout(() => location.reload(), 800);
     } else {
-      window.location.href = `/grupos?success=Has+salido+del+grupo`;
+      const data = await res.json().catch(() => ({}));
+      showToast(data.error || 'No se pudo salir del grupo', 'error');
     }
   } catch (e) {
-    showToast('Error', 'error');
+    showToast('Error de conexión', 'error');
   }
 }
 

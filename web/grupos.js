@@ -469,6 +469,28 @@ router.delete('/api/grupos/:id/tiquets/:uuid', auth, async (req, res) => {
   }
 });
 
+// NUEVA ruta — salir del grupo (cualquier miembro)
+router.delete('/api/grupos/:id/miembros/me', auth, async (req, res) => {
+  const uid     = req.session.usuario.id;
+  const grupoId = parseInt(req.params.id, 10);
+
+  try {
+    const [[miembro]] = await db.execute(
+      'SELECT rol FROM miembros_grupo WHERE grupo_id = ? AND usuario_id = ?',
+      [grupoId, uid]
+    );
+    if (!miembro) return res.status(404).json({ error: 'No eres miembro de este grupo' });
+
+    await db.execute(
+      'DELETE FROM miembros_grupo WHERE grupo_id = ? AND usuario_id = ?',
+      [grupoId, uid]
+    );
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 /**
  * DELETE /api/grupos/:id/miembros/:uid
  * Expulsar a un miembro (solo admins). O salir del grupo (cualquier miembro).
