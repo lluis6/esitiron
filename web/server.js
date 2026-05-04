@@ -12,6 +12,13 @@ const bcryptjs   = require('bcryptjs');
 const mysql      = require('mysql2/promise');
 const session    = require('express-session');
 const crypto     = require('crypto');
+
+let sharp = null;
+try {
+  sharp = require('sharp');
+} catch (e) {
+  console.warn('[WARN] sharp no disponible, HEIC/HEIF no se podra convertir');
+}
 const speakeasy  = require('speakeasy');
 const QRCode     = require('qrcode');
 
@@ -57,8 +64,26 @@ const ticketsSubidosCounter = new promClient.Counter({
 register.registerMetric(ticketsSubidosCounter);
 
 // ── Cifrado AES-256-GCM ───────────────────────────────────────
-const SESSION_SECRET = process.env.SESSION_SECRET || 'cambia_esto';
-const ENCRYPTION_KEY = crypto.scryptSync(SESSION_SECRET, 'salt', 32);
+const REQUIRED_ENV = ['SESSION_SECRET', 'AES_SALT'];
+const missingEnv = REQUIRED_ENV.filter((key) => !process.env[key] || process.env[key].trim() === '');
+if (missingEnv.length > 0) {
+  console.error('');
+  console.error('╔══════════════════════════════════════════════════════════════╗');
+  console.error('║  ERROR FATAL — Variables de entorno críticas no definidas   ║');
+  console.error('╠══════════════════════════════════════════════════════════════╣');
+  missingEnv.forEach((key) => console.error(`║  ✗ ${key.padEnd(58)}║`));
+  console.error('╠══════════════════════════════════════════════════════════════╣');
+  console.error('║  Genera los valores y añádelos a .env:                      ║');
+  console.error('║   SESSION_SECRET → openssl rand -base64 64                  ║');
+  console.error('║   AES_SALT       → openssl rand -hex 32                     ║');
+  console.error('╚══════════════════════════════════════════════════════════════╝');
+  console.error('');
+  process.exit(1);
+}
+
+const SESSION_SECRET = process.env.SESSION_SECRET;
+const AES_SALT = process.env.AES_SALT;
+const ENCRYPTION_KEY = crypto.scryptSync(SESSION_SECRET, AES_SALT, 32);
 const IV_LENGTH = 16;
 
 function encrypt(text) {
@@ -326,13 +351,14 @@ const uploadTiquet = multer({
     const mime = (file.mimetype || '').toLowerCase().trim();
     const ALLOWED =[
       'image/jpeg', 'image/jpg',          // Android a veces manda image/jpg
+      'image/heic', 'image/heif',          // iOS/Android galeria suele mandar HEIC/HEIF
       'image/png', 'image/webp', 'image/gif',
       'application/pdf',
       'application/octet-stream',          // iOS/Android picker genérico
     ];
     // También aceptar por extensión cuando el MIME llega vacío o genérico
     const ext = path.extname(file.originalname || '').toLowerCase();
-    const ALLOWED_EXT =['.jpg', '.jpeg', '.png', '.webp', '.gif', '.pdf'];
+    const ALLOWED_EXT =['.jpg', '.jpeg', '.png', '.webp', '.gif', '.pdf', '.heic', '.heif'];
     if (ALLOWED.includes(mime) || ALLOWED_EXT.includes(ext)) {
       cb(null, true);
     } else {
@@ -385,6 +411,25 @@ const uploadOpf = multer({
     else cb(new Error('Formato de imagen no permitido'));
   },
 });
+
+async function normalizeUploadForOcr(file) {
+  const originalName = file.originalname || 'upload';
+  const ext = path.extname(originalName).toLowerCase();
+  const mime = (file.mimetype || '').toLowerCase();
+  const isHeic = mime.includes('heic') || mime.includes('heif') || ext === '.heic' || ext === '.heif';
+
+  if (!isHeic) {
+    return { buffer: file.buffer, filename: originalName, mimetype: file.mimetype || 'application/octet-stream' };
+  }
+
+  if (!sharp) {
+    throw new Error('HEIC/HEIF no soportado en servidor');
+  }
+
+  const jpegBuffer = await sharp(file.buffer).jpeg({ quality: 92 }).toBuffer();
+  const safeName = originalName.replace(/\.(heic|heif)$/i, '') || 'upload';
+  return { buffer: jpegBuffer, filename: `${safeName}.jpg`, mimetype: 'image/jpeg' };
+}
 
 // ── Estáticos y middleware ────────────────────────────────────
 const PUBLIC_DIR      = path.join(__dirname, 'public');
@@ -828,13 +873,24 @@ app.get('/tiquets', auth, async (req, res) => {
 });
 
 // ── OCR / preview / confirmar ─────────────────────────────────
-app.post('/subir_tiquet', auth, (req, res) => {
+function logUpload(req, file) {
+  const ua = req.headers['user-agent'] || 'unknown';
+  if (!file) {
+    console.warn(`[Upload] sin archivo | ua=${ua}`);
+    return;
+  }
+  console.info(`[Upload] file=${file.originalname} mime=${file.mimetype} size=${file.size} ua=${ua}`);
+}
+
+async function handleTiquetUpload(req, res) {
   uploadTiquet.single('foto_tiquet')(req, res, async (err) => {
     if (err) return res.redirect('/dashboard?error=' + encodeURIComponent(err.message));
+    logUpload(req, req.file);
     if (!req.file) return res.redirect('/dashboard?error=Sin+archivo');
     try {
+      const normalizedFile = await normalizeUploadForOcr(req.file);
       const form = new FormData();
-      form.append('file', req.file.buffer, { filename: req.file.originalname, contentType: req.file.mimetype });
+      form.append('file', normalizedFile.buffer, { filename: normalizedFile.filename, contentType: normalizedFile.mimetype });
       const r = await axios.post(OCR_URL, form, { headers: form.getHeaders(), timeout: 90000 });
 
       if (r.data && Array.isArray(r.data.productos)) {
@@ -851,10 +907,16 @@ app.post('/subir_tiquet', auth, (req, res) => {
       req.session.tiquetPendent = r.data;
       return res.redirect('/preview');
     } catch (e) {
+      console.error('[Upload] OCR error:', e.message);
       return res.redirect('/dashboard?error=Error+procesando+imagen');
     }
   });
-});
+}
+
+app.post('/subir_tiquet', auth, handleTiquetUpload);
+app.post('/subir_tique', auth, handleTiquetUpload);
+app.get('/subir_tiquet', auth, (_req, res) => res.redirect('/dashboard'));
+app.get('/subir_tique', auth, (_req, res) => res.redirect('/dashboard'));
 
 app.get('/preview', auth, (req, res) => {
   const d = req.session.tiquetPendent;
@@ -1259,8 +1321,6 @@ app.post('/api/opf/create', auth, (req, res) => {
     if (!/^\d{8,14}$/.test(ean))    return res.status(400).json({ error: 'EAN inválido' });
     if (!nombre || !marca)          return res.status(400).json({ error: 'Nombre y marca son obligatorios' });
     if (!['draft','ready'].includes(status)) return res.status(400).json({ error: 'Estado inválido' });
-    if (status === 'ready' && !file) return res.status(400).json({ error: 'Foto obligatoria para enviar' });
-
     const esAdmin = !!req.session.usuario?.es_admin;
     let estado = status === 'ready' ? 'sent' : 'draft';
     let opfResponse = null;
@@ -1781,6 +1841,14 @@ app.use('/', gruposRouter);
 app.get('/api/tiquets', auth, async (req, res) => {
   try { res.json({ success: true, data: await getTiquets(req.session.usuario.id) }); }
   catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+// ── 404 catch-all ───────────────────────────────────────────
+app.use((req, res) => {
+  if (!req.session || !req.session.usuario) {
+    return res.redirect('/login?error=Debes+iniciar+sesión');
+  }
+  return res.status(404).render('error404.html', { ...navLocals(req) });
 });
 
 // ── Arranque ──────────────────────────────────────────────────

@@ -1,23 +1,55 @@
 /* ==========================================================================
-   ESÍTIRON — perfil_2fa_backup.css
+   ESITIRON — perfil_2fa_backup.css
    ========================================================================== */
 
-/* ── Grid de códigos de recuperación ────────────────────────────────────── */
-.codes-grid {
-  display: grid; grid-template-columns: 1fr 1fr;
-  gap: 10px; margin: 1.5rem 0;
-}
-.code-box {
-  background: var(--surface); border: 1px solid var(--border2);
-  padding: 10px; text-align: center; font-family: monospace;
-  font-size: 1.1rem; border-radius: 6px;
-  letter-spacing: 2px; font-weight: bold; color: var(--text);
+/* Contenedor principal */
+.setup-wrap {
+  max-width: 600px;
+  margin: 2rem auto;
+  padding: 0 1rem;
 }
 
-/* ── Caja de advertencia ────────────────────────────────────────────────── */
+/* Tarjeta blanca/oscura */
+.setup-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 2rem;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+}
+
+/* Caja de advertencia */
 .warning-box {
-  background: #fef3c7; color: #92400e;
-  border: 1px solid #fcd34d; padding: 15px;
-  border-radius: 8px; font-size: 0.9rem;
-  line-height: 1.5; margin-bottom: 1.5rem;
+  background: var(--yellow-lt);
+  color: var(--yellow);
+  border: 1px solid rgba(251,191,36,0.3);
+  padding: 1rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  margin-bottom: 1.5rem;
+}
+
+/* Grid de codigos de recuperacion */
+.codes-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 1.5rem 0;
+}
+.code-box {
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  padding: 10px;
+  text-align: center;
+  font-family: monospace;
+  font-size: 1.1rem;
+  border-radius: 6px;
+  letter-spacing: 2px;
+  font-weight: bold;
+  color: var(--text);
+}
+
+@media (max-width: 640px) {
+  .codes-grid { grid-template-columns: 1fr; }
 }

@@ -113,8 +113,8 @@
         <h3 id="dropTitle">Subir nuevo tiquet</h3>
         <p id="dropSubtitle">Arrastra una imagen o PDF aquí, o haz clic para seleccionar</p>
         <p style="font-size:0.75rem;color:var(--text3);margin-top:0.25rem;">JPG · PNG · WEBP · PDF — Máx. 15 MB</p>
-        <input type="file" id="fotoTiquet" name="foto_tiquet" class="upload-input"
-               accept="image/*,application/pdf" onchange="iniciarAnalisis()">
+         <input type="file" id="fotoTiquet" name="foto_tiquet" class="upload-input"
+           accept="image/*,application/pdf,.heic,.heif" onchange="iniciarAnalisis()">
       </label>
     </form>
   </div>
@@ -234,11 +234,12 @@ document.addEventListener('click', e => {
 // Validamos también por extensión como fallback.
 const ALLOWED_MIME = new Set([
   'image/jpeg', 'image/jpg',           // Android picker a veces manda image/jpg
+  'image/heic', 'image/heif',          // iOS/Android galeria suele mandar HEIC/HEIF
   'image/png', 'image/webp', 'image/gif',
   'application/pdf',
   'application/octet-stream',          // picker genérico en móvil
 ]);
-const ALLOWED_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.pdf']);
+const ALLOWED_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.pdf', '.heic', '.heif']);
 
 function esArchivoValido(file) {
   if (!file) return false;
@@ -276,7 +277,7 @@ function resetDropZone() {
   document.getElementById('dropTitle').textContent    = 'Subir nuevo tiquet';
   document.getElementById('dropSubtitle').textContent = 'Arrastra una imagen o PDF aquí, o haz clic para seleccionar';
 }
-function iniciarAnalisis() {
+async function iniciarAnalisis() {
   const file = fileInput.files[0];
   if (!file) return;
   // Validar también cuando el archivo viene del picker nativo (no solo del drop)
@@ -292,7 +293,28 @@ function iniciarAnalisis() {
     if (i < steps.length) { document.getElementById(steps[i]).classList.add('active'); i++; }
     else clearInterval(iv);
   }, 1800);
-  setTimeout(() => document.getElementById('uploadForm').submit(), 300);
+
+  try {
+    // En algunos moviles el archivo cambia al instante y el submit falla.
+    // Leemos el archivo a memoria para evitar ERR_UPLOAD_FILE_CHANGED.
+    const buffer = await file.arrayBuffer();
+    const safeFile = new File([buffer], file.name, { type: file.type || 'application/octet-stream' });
+    const formData = new FormData();
+    formData.append('foto_tiquet', safeFile);
+
+    const response = await fetch('/subir_tiquet', { method: 'POST', body: formData });
+    if (response.redirected) {
+      window.location.href = response.url;
+      return;
+    }
+    if (response.ok) {
+      window.location.href = '/preview';
+      return;
+    }
+    window.location.href = '/dashboard?error=Error+procesando+imagen';
+  } catch (e) {
+    window.location.href = '/dashboard?error=Error+procesando+imagen';
+  }
 }
 </script>
 </body>

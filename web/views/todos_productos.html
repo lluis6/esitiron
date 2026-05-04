@@ -80,7 +80,7 @@
         <input type="text" id="vpMarca" name="marca" class="wizard-input" required>
       </div>
       <div class="form-group">
-        <label>Foto frontal <span class="req">*</span></label>
+        <label>Foto frontal (opcional)</label>
         <div class="file-upload-wrap">
           <input type="file" id="vpFoto" name="foto" accept="image/jpeg, image/png, image/webp" onchange="previewEanImage(this)">
           <div class="file-upload-text" id="vpFileText">Haz clic para subir una imagen</div>
@@ -644,12 +644,8 @@ async function crearYVincularEAN(e) {
     setEanStatus('Nombre y marca son obligatorios.', 'error');
     return;
   }
-  if (!foto) {
-    setEanStatus('La foto es obligatoria para crear en OPF.', 'error');
-    return;
-  }
 
-  const fotoUrl = URL.createObjectURL(foto);
+  const fotoUrl = foto ? URL.createObjectURL(foto) : null;
   const confirmado = await confirmarReferenciaBarcodeAsync(ean, nombre, marca, fotoUrl, currentOriginalName);
   if (!confirmado) {
     setEanStatus('Operacion cancelada.', 'info');
@@ -660,7 +656,7 @@ async function crearYVincularEAN(e) {
   formData.append('ean', ean);
   formData.append('nombre', nombre);
   formData.append('marca', marca);
-  formData.append('foto', foto);
+  if (foto) formData.append('foto', foto);
   formData.append('status', 'ready');
 
   setEanStatus('Creando producto en OPF...', 'loading');
