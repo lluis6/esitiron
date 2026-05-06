@@ -140,6 +140,61 @@ html.dark .asignar-dropdown { background: var(--surface); }
 }
 .asignar-selected-clear:hover { color: var(--red); }
 
+/* Confirmación inline de vinculación */
+.asignar-confirm {
+  margin-top: 0.75rem;
+}
+.asignar-confirm-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface2);
+  padding: 0.85rem;
+}
+.asignar-confirm-title {
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: var(--text);
+  margin-bottom: 0.35rem;
+}
+.asignar-confirm-text {
+  font-size: 0.8rem;
+  color: var(--text2);
+  line-height: 1.4;
+}
+.asignar-confirm-product {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.6rem;
+  padding: 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.asignar-confirm-product img {
+  width: 40px; height: 40px;
+  object-fit: contain;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: white;
+  flex-shrink: 0;
+}
+.asignar-confirm-name {
+  font-weight: 600;
+  font-size: 0.82rem;
+  color: var(--text);
+}
+.asignar-confirm-brand {
+  font-size: 0.74rem;
+  color: var(--text3);
+}
+.asignar-confirm-actions {
+  margin-top: 0.7rem;
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
 /* Columna derecha: EAN + OPF */
 .asignar-ean-row {
   display: flex;

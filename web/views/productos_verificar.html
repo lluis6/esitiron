@@ -8,7 +8,6 @@
   <link rel="stylesheet" href="/css/main.css">
   <link rel="stylesheet" href="/css/class/todos_productos.css?v=20260428-2">
   <link rel="stylesheet" href="/css/class/productos_verificar.css">
-  <link rel="stylesheet" href="/css/class/modal_confirm.css">
   <link rel="icon" type="image/png" href="/img/logo.jpg">
   <link rel="stylesheet" href="/css/responsive.css">
 </head>
@@ -93,6 +92,7 @@
         <div class="hidden" id="prodSelectedWrap">
           <!-- se rellena por JS -->
         </div>
+        <div class="asignar-confirm hidden" id="inlineConfirmWrap"></div>
       </div>
 
       <!-- Col der: EAN + lookup OPF -->
@@ -156,6 +156,9 @@
                 <div style="font-weight:700; font-size:0.95rem; color:var(--text);">{{ v.nombre }}</div>
                 {% if v.marca %}
                   <small style="color:var(--text2); font-size:0.78rem;">{{ v.marca | lower }}</small>
+                {% endif %}
+                {% if v.nombres_tiquet %}
+                  <small style="color:var(--text3); font-size:0.72rem; display:block;">Nombre en tiquet: {{ v.nombres_tiquet }}</small>
                 {% endif %}
               </div>
             </div>
@@ -292,28 +295,6 @@
     </table>
   </div>
 
-<!-- Modal Confirmación EAN (Admin) -->
-<div class="modal-overlay" id="modalConfirmEan" onclick="cerrarModalConfirmEan(event)">
-  <div class="modal-card" onclick="event.stopPropagation()">
-    <div class="modal-title">¿Asociar este código?</div>
-    <p style="color:var(--text2); font-size:0.9rem; margin-bottom:1rem; text-align: left;" id="modalEanText">
-    </p>
-    
-    <div style="display:flex; align-items:center; gap:1rem; padding:0.75rem; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--surface2); text-align:left; margin-bottom:1.5rem;">
-      <img id="modalEanImg" src="" style="width:48px; height:48px; object-fit:contain; border-radius:6px; background:white; border:1px solid var(--border); flex-shrink:0;" alt="">
-      <div style="flex:1; min-width:0;">
-        <div style="font-weight:600; font-size:0.9rem; color:var(--text); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;" id="modalEanNombre"></div>
-        <div style="font-size:0.75rem; color:var(--text3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" id="modalEanMarca"></div>
-      </div>
-    </div>
-
-    <div class="modal-btns">
-      <button class="btn btn-ghost" type="button" onclick="cerrarModalConfirmEan(event)">Cancelar</button>
-      <button class="btn btn-primary" type="button" id="btnConfirmarEanAction">Sí, asociar</button>
-    </div>
-  </div>
-</div>
-
 </main>
 
 <script>
@@ -335,33 +316,46 @@ let searchTimer     = null;
 
 const PLACEHOLDER_IMG = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 48 48'%3E%3Crect width='48' height='48' rx='8' fill='%23f3f4f6'/%3E%3Ctext x='50%25' y='54%25' dominant-baseline='middle' text-anchor='middle' font-size='22' font-family='sans-serif'%3E🛒%3C/text%3E%3C/svg%3E`;
 
-// MODAL CONFIRMACIÓN EAN (Promise-based)
-function confirmarReferenciaBarcodeAsync(msg, nombre, marca, fotoUrl) {
-  return new Promise((resolve) => {
-    const modal = document.getElementById('modalConfirmEan');
-    document.getElementById('modalEanText').textContent = msg;
-    document.getElementById('modalEanNombre').textContent = nombre || 'Desconocido';
-    document.getElementById('modalEanMarca').textContent = marca || '';
-    
-    const imgEl = document.getElementById('modalEanImg');
-    imgEl.src = fotoUrl || PLACEHOLDER_IMG;
-    
-    modal.classList.add('open');
+// CONFIRMACIÓN INLINE (mismo bloque de búsqueda)
+function ocultarConfirmacionInline() {
+  const wrap = document.getElementById('inlineConfirmWrap');
+  wrap.classList.add('hidden');
+  wrap.innerHTML = '';
+}
 
-    const btnConfirm = document.getElementById('btnConfirmarEanAction');
-    const newConfirm = btnConfirm.cloneNode(true);
-    btnConfirm.parentNode.replaceChild(newConfirm, newConfirm);
-    
-    newConfirm.addEventListener('click', () => {
-      modal.classList.remove('open');
+function confirmarReferenciaBarcodeAsync(msg, nombre, marca, fotoUrl, ctaText) {
+  return new Promise((resolve) => {
+    const wrap = document.getElementById('inlineConfirmWrap');
+    wrap.innerHTML = `
+      <div class="asignar-confirm-card">
+        <div class="asignar-confirm-title">¿Confirmas la vinculación?</div>
+        <div class="asignar-confirm-text">${msg}</div>
+        <div class="asignar-confirm-product">
+          <img src="${fotoUrl || PLACEHOLDER_IMG}" onerror="this.src='${PLACEHOLDER_IMG}'" alt="">
+          <div>
+            <div class="asignar-confirm-name">${nombre || 'Desconocido'}</div>
+            <div class="asignar-confirm-brand">${marca || ''}</div>
+          </div>
+        </div>
+        <div class="asignar-confirm-actions">
+          <button class="btn btn-ghost" type="button" data-action="cancel">Cancelar</button>
+          <button class="btn btn-primary" type="button" data-action="confirm">${ctaText || 'Sí, asociar'}</button>
+        </div>
+      </div>
+    `;
+    wrap.classList.remove('hidden');
+
+    const btnCancel = wrap.querySelector('[data-action="cancel"]');
+    const btnConfirm = wrap.querySelector('[data-action="confirm"]');
+
+    btnCancel.addEventListener('click', () => {
+      ocultarConfirmacionInline();
+      resolve(false);
+    });
+    btnConfirm.addEventListener('click', () => {
+      ocultarConfirmacionInline();
       resolve(true);
     });
-
-    window.cerrarModalConfirmEan = function(e) {
-      if (e && e.target !== e.currentTarget && !e.target.classList.contains('btn-ghost')) return;
-      modal.classList.remove('open');
-      resolve(false);
-    };
   });
 }
 
@@ -411,6 +405,7 @@ function seleccionarProducto(p) {
       <button class="asignar-selected-clear" onclick="limpiarProducto()" title="Cambiar producto">✕</button>
     </div>`;
   wrap.classList.remove('hidden');
+  ocultarConfirmacionInline();
   actualizarBoton();
 }
 
@@ -419,6 +414,7 @@ function limpiarProducto() {
   document.getElementById('prodSearchInput').style.display = '';
   document.getElementById('prodSearchInput').value = '';
   document.getElementById('prodSelectedWrap').classList.add('hidden');
+  ocultarConfirmacionInline();
   actualizarBoton();
 }
 
@@ -433,6 +429,7 @@ async function lookupOPF() {
 
   opfProduct = null;
   opfEan     = ean;
+  ocultarConfirmacionInline();
   document.getElementById('opfResultWrap').classList.add('hidden');
   setOpfStatus('Consultando Open Food Facts...', 'loading');
 
@@ -520,21 +517,23 @@ function actualizarBoton() {
 async function confirmarVincular() {
   if (!selectedProduct || !opfEan) return;
 
-  let msg, nombre, marca, fotoUrl;
+  let msg, nombre, marca, fotoUrl, ctaText;
   
   if (opfProduct) {
     msg = `¿Confirmas asociar el EAN ${opfEan} al producto de tu catálogo "${selectedProduct.nombre}"?`;
     nombre = opfProduct.nombre;
     marca = opfProduct.marca;
     fotoUrl = opfProduct.image_url;
+    ctaText = 'Sí, asociar';
   } else {
     msg = `El EAN ${opfEan} no existe en Open Food Facts. ¿Crear referencia pendiente de revisión para "${selectedProduct.nombre}"?`;
     nombre = selectedProduct.nombre;
     marca = selectedProduct.marca;
     fotoUrl = selectedProduct.foto_url;
+    ctaText = 'Crear referencia';
   }
 
-  const confirmado = await confirmarReferenciaBarcodeAsync(msg, nombre, marca, fotoUrl);
+  const confirmado = await confirmarReferenciaBarcodeAsync(msg, nombre, marca, fotoUrl, ctaText);
   if (!confirmado) return;
 
   try {

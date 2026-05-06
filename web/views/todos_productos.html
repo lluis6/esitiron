@@ -6,40 +6,12 @@
   <title>Esítiron — {{ 'Productos del grupo' if es_grupo else 'Mis productos' }}</title>
   <script src="/js/theme.js"></script>
   <link rel="stylesheet" href="/css/main.css">
-  <link rel="stylesheet" href="/css/class/todos_productos.css?v=20260428-2">
+  <link rel="stylesheet" href="/css/class/todos_productos.css?v=20260505-1">
   <link rel="stylesheet" href="/css/class/modal_confirm.css">
   <link rel="icon" type="image/png" href="/img/logo.jpg">
   <link rel="stylesheet" href="/css/responsive.css">
 </head>
 <body>
-
-<!-- Modal Confirmación EAN -->
-<div class="modal-overlay" id="modalConfirmEan" onclick="cerrarModalConfirmEan(event)">
-  <div class="modal-card" onclick="event.stopPropagation()">
-    <div class="modal-title">¿Asociar este código?</div>
-    <p style="color:var(--text2); font-size:0.9rem; margin-bottom:1rem; text-align: left;">
-      ¿Confirmas asociar el código <strong id="modalEanVal"></strong> a este producto?
-      <br><br>Quedará pendiente de verificación por un administrador.
-    </p>
-    
-    <div style="background:var(--surface2); border:1px solid var(--border); border-radius:6px; padding:0.75rem; margin-bottom:1rem; font-size:0.85rem; color:var(--text2); text-align: left;">
-      <strong>Nombre en tiquet:</strong> <span id="modalEanOriginal"></span>
-    </div>
-
-    <div style="display:flex; align-items:center; gap:1rem; padding:0.75rem; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--surface2); text-align:left; margin-bottom:1.5rem;">
-      <img id="modalEanImg" src="" style="width:48px; height:48px; object-fit:contain; border-radius:6px; background:white; border:1px solid var(--border); flex-shrink:0;" alt="">
-      <div style="flex:1; min-width:0;">
-        <div style="font-weight:600; font-size:0.9rem; color:var(--text); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;" id="modalEanNombre"></div>
-        <div style="font-size:0.75rem; color:var(--text3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" id="modalEanMarca"></div>
-      </div>
-    </div>
-
-    <div class="modal-btns">
-      <button class="btn btn-ghost" type="button" onclick="cerrarModalConfirmEan(event)">Cancelar</button>
-      <button class="btn btn-primary" type="button" id="btnConfirmarEanAction">Sí, asociar</button>
-    </div>
-  </div>
-</div>
 
 <!-- Panel overlay compartido -->
 <div class="panel-overlay" id="panelOverlay" onclick="cerrarPanel()"></div>
@@ -56,6 +28,39 @@
   <div class="vp-mode-toggle">
     <button type="button" class="vp-toggle active" data-mode="nombre" onclick="setVincularModo('nombre')">Buscar por nombre</button>
     <button type="button" class="vp-toggle" data-mode="ean" onclick="setVincularModo('ean')">Buscar por codigo</button>
+  </div>
+  <!-- Confirmacion inline (dentro del panel lateral) -->
+  <div class="confirm-inline hidden" id="inlineConfirmEanWrap">
+    <div class="confirm-inline-header">
+      <div>
+        <div class="confirm-inline-title">¿Asociar este codigo?</div>
+        <div class="confirm-inline-sub">Quedara pendiente de verificacion por un administrador.</div>
+      </div>
+      <button class="confirm-inline-close" type="button" onclick="cerrarConfirmInline(false)">✕</button>
+    </div>
+
+    <div class="confirm-inline-body">
+      <p class="confirm-inline-text">
+        ¿Confirmas asociar el codigo <strong id="inlineEanVal"></strong> a este producto?
+      </p>
+
+      <div class="confirm-inline-original">
+        <strong>Nombre en tiquet:</strong> <span id="inlineEanOriginal"></span>
+      </div>
+
+      <div class="confirm-inline-product">
+        <img id="inlineEanImg" src="" alt="">
+        <div class="confirm-inline-product-text">
+          <div class="confirm-inline-name" id="inlineEanNombre"></div>
+          <div class="confirm-inline-brand" id="inlineEanMarca"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="confirm-inline-actions">
+      <button class="btn btn-ghost" type="button" onclick="cerrarConfirmInline(false)">Cancelar</button>
+      <button class="btn btn-primary" type="button" id="btnConfirmarEanInline">Si, asociar</button>
+    </div>
   </div>
   <div class="vp-search-wrap" id="vpSearchWrap">
     <input type="text" id="vpSearchInput" class="vp-search" placeholder="Busca nombre o marca..." oninput="buscar(this.value)">
@@ -213,6 +218,7 @@
       {% endif %}
     </form>
   </div>
+
 
   <div class="card table-container">
     <table>
@@ -424,36 +430,41 @@ let eanLookupProduct = null;
 
 const PLACEHOLDER_IMG = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 48 48'%3E%3Crect width='48' height='48' rx='8' fill='%23f3f4f6'/%3E%3Ctext x='50%25' y='54%25' dominant-baseline='middle' text-anchor='middle' font-size='22' font-family='sans-serif'%3E🛒%3C/text%3E%3C/svg%3E`;
 
-// MODAL CONFIRMACIÓN EAN (Promise-based)
+// CONFIRMACION INLINE EAN (Promise-based)
+let inlineConfirmResolver = null;
+
+function cerrarConfirmInline(result) {
+  const wrap = document.getElementById('inlineConfirmEanWrap');
+  if (wrap) wrap.classList.add('hidden');
+  if (inlineConfirmResolver) inlineConfirmResolver(Boolean(result));
+  inlineConfirmResolver = null;
+}
+
 function confirmarReferenciaBarcodeAsync(ean, nombre, marca, fotoUrl, originalName) {
   return new Promise((resolve) => {
-    const modal = document.getElementById('modalConfirmEan');
-    document.getElementById('modalEanVal').textContent = ean || 'N/A';
-    document.getElementById('modalEanNombre').textContent = nombre || 'Desconocido';
-    document.getElementById('modalEanMarca').textContent = marca || '';
-    
-    const origEl = document.getElementById('modalEanOriginal');
-    if (origEl) origEl.textContent = originalName || 'Desconocido';
-    
-    const imgEl = document.getElementById('modalEanImg');
-    imgEl.src = fotoUrl || PLACEHOLDER_IMG;
-    
-    modal.classList.add('open');
+    inlineConfirmResolver = resolve;
 
-    const btnConfirm = document.getElementById('btnConfirmarEanAction');
+    document.getElementById('inlineEanVal').textContent = ean || 'N/A';
+    document.getElementById('inlineEanNombre').textContent = nombre || 'Desconocido';
+    document.getElementById('inlineEanMarca').textContent = marca || '';
+
+    const origEl = document.getElementById('inlineEanOriginal');
+    if (origEl) origEl.textContent = originalName || 'Desconocido';
+
+    const imgEl = document.getElementById('inlineEanImg');
+    imgEl.src = fotoUrl || PLACEHOLDER_IMG;
+
+    const wrap = document.getElementById('inlineConfirmEanWrap');
+    if (wrap) {
+      wrap.classList.remove('hidden');
+      wrap.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    const btnConfirm = document.getElementById('btnConfirmarEanInline');
     const newConfirm = btnConfirm.cloneNode(true);
     btnConfirm.parentNode.replaceChild(newConfirm, btnConfirm);
-    
-    newConfirm.addEventListener('click', () => {
-      modal.classList.remove('open');
-      resolve(true);
-    });
 
-    window.cerrarModalConfirmEan = function(e) {
-      if (e && e.target !== e.currentTarget && !e.target.classList.contains('btn-ghost')) return;
-      modal.classList.remove('open');
-      resolve(false);
-    };
+    newConfirm.addEventListener('click', () => cerrarConfirmInline(true));
   });
 }
 

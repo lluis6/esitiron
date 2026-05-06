@@ -13,7 +13,6 @@ services:
       - /dev/net/tun:/dev/net/tun
     cap_add:
       - NET_ADMIN
-      - SYS_MODULE
     entrypoint: ["/bin/sh", "/entrypoint-funnel.sh"]
     network_mode: "service:proxy"
     depends_on:
@@ -64,24 +63,24 @@ services:
   # ══════════════════════════════════════════════════════════════
   #  APLICACIÓN
   # ══════════════════════════════════════════════════════════════
+
   web:
     build: ./web
     container_name: app_servidor
+    user: "node" # Forzamos ejecución sin permisos de administrador
+    security_opt:
+      - no-new-privileges:true # Evitar adquirir nuevos privilegios
+    cap_drop:
+      - ALL
     volumes:
       - ./web:/app
       - web_node_modules:/app/node_modules
-    # ✅ env_file carga todo el .env automáticamente.
-    # Las variables críticas (SESSION_SECRET, AES_SALT) vienen
-    # solo de aquí — sin fallback en el bloque environment.
     env_file:
       - ./.env
     environment:
       - DB_HOST=db
       - OCR_HOST=ocr
       - NODE_ENV=${NODE_ENV:-production}
-      # ✅ ELIMINADO: SESSION_SECRET=${SESSION_SECRET:-SecretoFijoParaCifrado2FA_123}
-      # Ese fallback hardcodeado era la vulnerabilidad principal.
-      # Ahora SESSION_SECRET debe estar en .env o la app no arranca.
     networks:
       - red_publica
       - red_interna
@@ -179,21 +178,41 @@ services:
       - red_monitoring
     restart: unless-stopped
 
+  # Servei per a protegir Docker i evitar que cAdvisor accedeixi directament al socket del host.
+  socket-proxy:
+    image: tecnativa/docker-socket-proxy:latest
+    container_name: socket-proxy
+    environment:
+      - CONTAINERS=1 # Permite leer metadatos de contenedores
+      - INFO=1       # Permite leer info básica
+      - EVENTS=1     # Permite leer eventos
+      - NETWORKS=1   # Permite leer redes (necesario para discovery de promtail)
+      - VERSION=1    # Permite leer version del daemon (requerido por cAdvisor)
+      - POST=0       # BLOQUEA la creación de contenedores
+      - BUILD=0      # BLOQUEA construcciones
+      - EXEC=0       # BLOQUEA la ejecución de comandos
+    volumes:
+      - ${XDG_RUNTIME_DIR}/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - red_monitoring
+    restart: unless-stopped
+
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:latest
     container_name: cadvisor
-    privileged: true
     command:
-      - '--docker=unix:///var/run/docker.sock'
+      - '--docker=tcp://socket-proxy:2375' # Usa el proxy en lugar del socket físico
+      - '--docker_only=true'
     volumes:
       - /:/rootfs:ro
       - /dev/disk/:/dev/disk:ro
       - /sys/fs/cgroup:/sys/fs/cgroup:ro
       - ${HOME}/.local/share/docker:/var/lib/docker:ro
-      - ${XDG_RUNTIME_DIR}/docker.sock:/var/run/docker.sock:ro
       - ${XDG_RUNTIME_DIR}/docker/containerd/containerd.sock:/run/containerd/containerd.sock:ro
     networks:
       - red_monitoring
+    depends_on:
+      - socket-proxy # <-- Añadido para que arranque primero el proxy
     restart: unless-stopped
 
   mysql-exporter:
@@ -275,12 +294,11 @@ services:
       - ./monitoring/promtail/config.yml:/etc/promtail/config.yml:ro
       - promtail_data:/tmp
       - ${HOME}/.local/share/docker/containers:/var/lib/docker/containers:ro
-      - ${XDG_RUNTIME_DIR}/docker.sock:/var/run/docker.sock:ro
-      - ${XDG_RUNTIME_DIR}/docker/containerd/containerd.sock:/run/containerd/containerd.sock:ro
     networks:
       - red_monitoring
     depends_on:
       - loki
+      - socket-proxy
     restart: unless-stopped
 
 networks:
