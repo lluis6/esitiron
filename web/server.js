@@ -8,6 +8,7 @@ const axios      = require('axios');
 const FormData   = require('form-data');
 const path       = require('path');
 const fs         = require('fs');
+const os         = require('os');
 const bcryptjs   = require('bcryptjs');
 const mysql      = require('mysql2/promise');
 const session    = require('express-session');
@@ -110,8 +111,40 @@ function decrypt(text) {
 }
 
 // ── Directorios ───────────────────────────────────────────────
-const AVATARS_DIR = path.join(__dirname, 'public', 'avatars');
-if (!fs.existsSync(AVATARS_DIR)) fs.mkdirSync(AVATARS_DIR, { recursive: true });
+const DEFAULT_AVATARS_DIR  = path.join(__dirname, 'public', 'avatars');
+const FALLBACK_AVATARS_DIR = path.join(os.tmpdir(), 'esitiron_avatars');
+
+function ensureWritableDir(dir) {
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.accessSync(dir, fs.constants.W_OK);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function resolveAvatarsDir() {
+  const envDir = (process.env.AVATARS_DIR || '').trim();
+  const candidates =[];
+  if (envDir) candidates.push(path.resolve(envDir));
+  candidates.push(DEFAULT_AVATARS_DIR, FALLBACK_AVATARS_DIR);
+  for (const dir of candidates) {
+    if (ensureWritableDir(dir)) {
+      if (dir !== DEFAULT_AVATARS_DIR) console.warn(`[AVATAR] Usando directorio alternativo: ${dir}`);
+      return dir;
+    }
+  }
+  console.error('[AVATAR] No hay directorio de avatares escribible.');
+  process.exit(1);
+}
+
+const AVATARS_DIR = resolveAvatarsDir();
+const AVATAR_DIRS = Array.from(new Set([AVATARS_DIR, DEFAULT_AVATARS_DIR]));
+
+function getAvatarPath(filename, dir = AVATARS_DIR) {
+  return path.join(dir, path.basename(filename || ''));
+}
 const OPF_UPLOADS_DIR = path.join(__dirname, 'private', 'opf_uploads');
 if (!fs.existsSync(OPF_UPLOADS_DIR)) fs.mkdirSync(OPF_UPLOADS_DIR, { recursive: true });
 
@@ -519,14 +552,16 @@ app.get('/avatar/:filename', (req, res) => {
     console.warn(`[SECURITY] Intento de acceso a avatar sin autenticación desde ${req.ip}`);
     return res.status(403).json({ error: 'No autorizado' });
   }
-  const filename   = req.params.filename;
-  const avatarsDir = path.join(__dirname, 'public', 'avatars');
-  const filepath   = path.join(avatarsDir, filename);
-
-  if (!filepath.startsWith(avatarsDir)) {
-    console.warn(`[SECURITY] Intento de directory traversal: ${filepath}`);
-    return res.status(403).json({ error: 'Acceso denegado' });
+  const filename = path.basename(req.params.filename || '');
+  if (!filename || filename === '.' || filename === '..') {
+    return res.status(404).json({ error: 'Avatar no encontrado' });
   }
+  let filepath = null;
+  for (const dir of AVATAR_DIRS) {
+    const candidate = getAvatarPath(filename, dir);
+    if (fs.existsSync(candidate)) { filepath = candidate; break; }
+  }
+  if (!filepath) filepath = getAvatarPath(filename);
 
   fs.stat(filepath, (err, stats) => {
     if (err || !stats.isFile()) return res.status(404).json({ error: 'Avatar no encontrado' });
@@ -1760,7 +1795,13 @@ app.post('/perfil/avatar', auth, (req, res) => {
       }
       const url   = `/avatars/${finalFilename}`;
       const [[u]] = await dbPool.execute('SELECT avatar FROM usuarios WHERE id=?', [req.session.usuario.id]);
-      if (u?.avatar?.startsWith('/avatars/')) { const old = path.join(__dirname, 'public', u.avatar); if (fs.existsSync(old)) fs.unlink(old, () => {}); }
+      if (u?.avatar?.startsWith('/avatars/')) {
+        const oldName = path.basename(u.avatar);
+        for (const dir of AVATAR_DIRS) {
+          const old = getAvatarPath(oldName, dir);
+          if (fs.existsSync(old)) fs.unlink(old, () => {});
+        }
+      }
       await dbPool.execute('UPDATE usuarios SET avatar=? WHERE id=?',[url, req.session.usuario.id]);
       req.session.usuario.avatar = url;
       res.json({ success: true, avatar: url });
@@ -1781,7 +1822,13 @@ app.post('/perfil/eliminar_cuenta', auth, async (req, res) => {
     const [[u]] = await conn.execute('SELECT password_hash, avatar FROM usuarios WHERE id=?', [uid]);
     if (!u) { await conn.rollback(); return res.redirect('/login'); }
     if (!bcryptjs.compareSync(password_borrado, u.password_hash)) { await conn.rollback(); return res.redirect('/perfil?error=Contraseña+incorrecta.+Operación+cancelada.'); }
-    if (u.avatar?.startsWith('/avatars/')) { const p = path.join(__dirname, 'public', u.avatar); if (fs.existsSync(p)) fs.unlinkSync(p); }
+    if (u.avatar?.startsWith('/avatars/')) {
+      const oldName = path.basename(u.avatar);
+      for (const dir of AVATAR_DIRS) {
+        const p = getAvatarPath(oldName, dir);
+        if (fs.existsSync(p)) fs.unlinkSync(p);
+      }
+    }
     await conn.execute('DELETE FROM compras              WHERE id_usuario=?',[uid]);
     await conn.execute('DELETE FROM tiquets              WHERE id_usuario=?', [uid]);
     await conn.execute('DELETE FROM codigos_recuperacion WHERE id_usuario=?', [uid]);
