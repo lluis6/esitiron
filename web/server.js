@@ -118,6 +118,15 @@ function ensureWritableDir(dir) {
   try {
     fs.mkdirSync(dir, { recursive: true });
     fs.accessSync(dir, fs.constants.W_OK);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e };
+  }
+}
+
+function isReadableDir(dir) {
+  try {
+    fs.accessSync(dir, fs.constants.R_OK);
     return true;
   } catch (e) {
     return false;
@@ -129,20 +138,32 @@ function resolveAvatarsDir() {
   const candidates = [];
   if (envDir) candidates.push(path.resolve(envDir));
   candidates.push(DEFAULT_AVATARS_DIR, FALLBACK_AVATARS_DIR);
+  const failures = [];
   for (const dir of candidates) {
-    if (ensureWritableDir(dir)) {
-      if (dir !== DEFAULT_AVATARS_DIR) console.warn(`[AVATAR] Usando directorio alternativo: ${dir}`);
+    const result = ensureWritableDir(dir);
+    if (result.ok) {
+      if (dir !== DEFAULT_AVATARS_DIR && failures.length) {
+        const details = failures
+          .map((failure) => `${failure.dir} (${failure.error.code || failure.error.message})`)
+          .join(', ');
+        console.warn(`[AVATAR] Usando directorio alternativo: ${dir}. Fallos: ${details}`);
+      }
       return dir;
     }
+    failures.push({ dir, error: result.error });
   }
-  console.error('[AVATAR] No hay directorio de avatares escribible.');
+  const details = failures
+    .map((failure) => `${failure.dir} (${failure.error.code || failure.error.message})`)
+    .join(', ');
+  console.error(`[AVATAR] No hay directorio de avatares escribible. Fallos: ${details}`);
   process.exit(1);
 }
 
 const AVATARS_DIR = resolveAvatarsDir();
-const AVATAR_DIRS = AVATARS_DIR === DEFAULT_AVATARS_DIR
-  ? [AVATARS_DIR]
-  : [AVATARS_DIR, DEFAULT_AVATARS_DIR];
+const AVATAR_DIRS = [AVATARS_DIR];
+if (DEFAULT_AVATARS_DIR !== AVATARS_DIR && isReadableDir(DEFAULT_AVATARS_DIR)) {
+  AVATAR_DIRS.push(DEFAULT_AVATARS_DIR);
+}
 
 function getAvatarPath(filename, dir = AVATARS_DIR) {
   const base = path.basename(filename || '');
