@@ -78,7 +78,8 @@ services:
     env_file:
       - ./.env
     environment:
-      - DB_HOST=db
+      - DB_HOST=proxysql
+      - DB_PORT=6033
       - OCR_HOST=ocr
       - NODE_ENV=${NODE_ENV:-production}
     networks:
@@ -87,8 +88,8 @@ services:
       - red_procesamiento
       - red_monitoring
     depends_on:
-      db:
-        condition: service_healthy
+      proxysql:
+        condition: service_started
     restart: on-failure
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health', r => process.exit(r.statusCode === 200 ? 0 : 1))"]
@@ -115,7 +116,16 @@ services:
   db:
     image: mysql:8.0
     container_name: db_mysql
-    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --skip-character-set-client-handshake
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --skip-character-set-client-handshake
+      --server-id=1
+      --log-bin=mysql-bin
+      --binlog-format=ROW
+      --gtid-mode=ON
+      --enforce-gtid-consistency=ON
+      --log-replica-updates=ON
     env_file:
       - ./.env
     environment:
@@ -123,6 +133,12 @@ services:
       - MYSQL_DATABASE=${DB_NAME:-tiquets_db}
       - MYSQL_USER=${DB_USER:-user_seguro}
       - MYSQL_PASSWORD=${DB_PASSWORD}
+      - DB_REPL_USER=${DB_REPL_USER}
+      - DB_REPL_PASSWORD=${DB_REPL_PASSWORD}
+      - ORC_USER=${ORC_USER}
+      - ORC_PASSWORD=${ORC_PASSWORD}
+      - PROXYSQL_MONITOR_USER=${PROXYSQL_MONITOR_USER}
+      - PROXYSQL_MONITOR_PASSWORD=${PROXYSQL_MONITOR_PASSWORD}
     networks:
       - red_interna
     volumes:
@@ -144,18 +160,95 @@ services:
       --collation-server=utf8mb4_unicode_ci
       --skip-character-set-client-handshake
       --server-id=2
+      --log-bin=mysql-bin
+      --relay-log=relay-bin
+      --binlog-format=ROW
+      --gtid-mode=ON
+      --enforce-gtid-consistency=ON
+      --log-replica-updates=ON
       --read-only=1
+      --super-read-only=1
     env_file:
       - ./.env
     environment:
       - MYSQL_ROOT_PASSWORD=${DB_ROOT_PASSWORD}
+      - DB_REPL_USER=${DB_REPL_USER}
+      - DB_REPL_PASSWORD=${DB_REPL_PASSWORD}
+      - DB_MASTER_HOST=${DB_MASTER_HOST:-db}
+      - DB_MASTER_PORT=${DB_MASTER_PORT:-3306}
     networks:
       - red_interna
     volumes:
       - mysql_slave_data:/var/lib/mysql
+      - ./db_replica_init:/docker-entrypoint-initdb.d:ro
     depends_on:
       db:
         condition: service_healthy
+    restart: unless-stopped
+
+  proxysql:
+    build: ./proxysql
+    container_name: db_proxysql
+    env_file:
+      - ./.env
+    environment:
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_REPL_USER=${DB_REPL_USER}
+      - DB_REPL_PASSWORD=${DB_REPL_PASSWORD}
+      - PROXYSQL_ADMIN_USER=${PROXYSQL_ADMIN_USER:-admin}
+      - PROXYSQL_ADMIN_PASSWORD=${PROXYSQL_ADMIN_PASSWORD:-admin}
+      - PROXYSQL_MONITOR_USER=${PROXYSQL_MONITOR_USER}
+      - PROXYSQL_MONITOR_PASSWORD=${PROXYSQL_MONITOR_PASSWORD}
+    networks:
+      - red_interna
+    depends_on:
+      db:
+        condition: service_healthy
+      db_replica:
+        condition: service_started
+    restart: unless-stopped
+
+  orchestrator:
+    image: openarkcode/orchestrator:latest
+    container_name: db_orchestrator
+    env_file:
+      - ./.env
+    environment:
+      - ORC_USER=${ORC_USER}
+      - ORC_PASSWORD=${ORC_PASSWORD}
+    volumes:
+      - ./orchestrator/orchestrator.conf.json:/etc/orchestrator.conf.json:ro
+      - ./orchestrator/orchestrator-topology.cnf:/etc/orchestrator-topology.cnf:ro
+      - ./orchestrator/orchestrator-backend.cnf:/etc/orchestrator-backend.cnf:ro
+    networks:
+      - red_interna
+    depends_on:
+      db:
+        condition: service_healthy
+      db_replica:
+        condition: service_started
+    restart: unless-stopped
+
+  orchestrator-failback:
+    image: alpine:3.19
+    container_name: db_orchestrator_failback
+    env_file:
+      - ./.env
+    environment:
+      - ORCHESTRATOR_API=http://orchestrator:3000/api
+      - PREFERRED_MASTER_HOST=${DB_MASTER_HOST:-db}
+      - PREFERRED_MASTER_PORT=${DB_MASTER_PORT:-3306}
+      - FAILBACK_CHECK_INTERVAL=${FAILBACK_CHECK_INTERVAL:-20}
+      - FAILBACK_COOLDOWN_SECONDS=${FAILBACK_COOLDOWN_SECONDS:-120}
+    volumes:
+      - ./orchestrator/failback.sh:/failback.sh:ro
+    networks:
+      - red_interna
+    depends_on:
+      orchestrator:
+        condition: service_started
+    entrypoint: ["/bin/sh", "/failback.sh"]
     restart: unless-stopped
 
   node-exporter:

@@ -1,0 +1,25 @@
+{
+  "Debug": true,
+  "EnableSyslog": false,
+  "ListenAddress": ":3000",
+  "DefaultInstancePort": 3306,
+  "MySQLTopologyCredentialsConfigFile": "/etc/orchestrator-topology.cnf",
+  "MySQLTopologyMaxPoolConnections": 3,
+  "MySQLOrchestratorHost": "db",
+  "MySQLOrchestratorPort": 3306,
+  "MySQLOrchestratorDatabase": "orchestrator",
+  "MySQLOrchestratorCredentialsConfigFile": "/etc/orchestrator-backend.cnf",
+  "DiscoverByShowSlaveHosts": true,
+  "InstancePollSeconds": 5,
+  "ReasonableReplicationLagSeconds": 10,
+  "RecoveryPeriodBlockSeconds": 120,
+  "RecoverMasterClusterFilters": [
+    "*"
+  ],
+  "RecoverIntermediateMasterClusterFilters": [
+    "*"
+  ],
+  "ApplyMySQLPromotionAfterMasterFailover": true,
+  "FailMasterPromotionIfSQLThreadNotUpToDate": true,
+  "DetachLostReplicasAfterMasterFailover": true
+}

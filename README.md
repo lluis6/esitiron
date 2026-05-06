@@ -92,7 +92,11 @@ Servicios principales:
 - proxy (Nginx): puerto 80 publicado al host.
 - web (Node.js): no publica puerto directamente al host (acceso via proxy).
 - ocr (FastAPI): interno.
-- db (MySQL 8): interno.
+- db (MySQL 8): master interno.
+- db_replica (MySQL 8): replica interna para failover.
+- proxysql: punto único de conexión MySQL para la app.
+- orchestrator: gestiona failover/failback de la topología MySQL.
+- orchestrator-failback: vigila el retorno del master preferido.
 - tailscale / cloudflared: conectividad externa.
 - prometheus / grafana / loki / promtail + exporters: observabilidad interna.
 
@@ -112,6 +116,20 @@ Base de datos:
 - DB_PASSWORD
 - DB_USER
 - DB_NAME
+- DB_REPL_USER
+- DB_REPL_PASSWORD
+- DB_MASTER_HOST (opcional, por defecto db)
+- DB_MASTER_PORT (opcional, por defecto 3306)
+
+Alta disponibilidad MySQL:
+- ORC_USER
+- ORC_PASSWORD
+- PROXYSQL_ADMIN_USER
+- PROXYSQL_ADMIN_PASSWORD
+- PROXYSQL_MONITOR_USER (opcional, si no se define usa DB_REPL_USER)
+- PROXYSQL_MONITOR_PASSWORD (opcional, si no se define usa DB_REPL_PASSWORD)
+- FAILBACK_CHECK_INTERVAL (opcional, segundos entre comprobaciones)
+- FAILBACK_COOLDOWN_SECONDS (opcional, espera tras un failback)
 
 OCR/Gemini:
 - CLAVE_1..CLAVE_10 (o CLAVE_API como fallback)
@@ -210,6 +228,25 @@ docker compose exec prometheus wget -qO- http://localhost:9090/-/healthy
 docker compose exec grafana wget -qO- http://localhost:3000/api/health
 ~~~
 
+## 5.1 Alta disponibilidad MySQL (ProxySQL + Orchestrator)
+
+- La app se conecta siempre a ProxySQL (`DB_HOST=proxysql`, `DB_PORT=6033`).
+- Orchestrator detecta caídas del master y promueve la réplica automáticamente.
+- El servicio `orchestrator-failback` intenta devolver el master preferido cuando vuelve y está al día.
+
+### Pruebas operativas (manuales)
+
+1. Simular caída del master:
+   ~~~bash
+   docker compose stop db
+   ~~~
+2. Verificar que la app sigue escribiendo (ProxySQL enruta al nuevo master).
+3. Volver a levantar el master:
+   ~~~bash
+   docker compose start db
+   ~~~
+4. Esperar el failback automático (logs en `orchestrator-failback`).
+
 ## 6. Uso Funcional Basico de la App
 
 1. Abrir en navegador: http://localhost
@@ -256,6 +293,17 @@ Proxy OpenFoodFacts (Nginx):
 |- migration_curacion.sql
 |- db_base/
 |  |- schema.sql
+|- db_replica_init/
+|  |- 01-configure-replication.sh
+|- proxysql/
+|  |- Dockerfile
+|  |- entrypoint.sh
+|  |- proxysql.cnf.template
+|- orchestrator/
+|  |- orchestrator.conf.json
+|  |- orchestrator-topology.cnf
+|  |- orchestrator-backend.cnf
+|  |- failback.sh
 |- ocr/
 |  |- main.py
 |  |- requirements.txt

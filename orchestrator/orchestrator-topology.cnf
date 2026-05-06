@@ -1,0 +1,3 @@
+[client]
+user=${ORC_USER}
+password=${ORC_PASSWORD}
