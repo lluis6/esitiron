@@ -126,7 +126,7 @@ function ensureWritableDir(dir) {
 
 function resolveAvatarsDir() {
   const envDir = (process.env.AVATARS_DIR || '').trim();
-  const candidates =[];
+  const candidates = [];
   if (envDir) candidates.push(path.resolve(envDir));
   candidates.push(DEFAULT_AVATARS_DIR, FALLBACK_AVATARS_DIR);
   for (const dir of candidates) {
@@ -140,10 +140,14 @@ function resolveAvatarsDir() {
 }
 
 const AVATARS_DIR = resolveAvatarsDir();
-const AVATAR_DIRS = Array.from(new Set([AVATARS_DIR, DEFAULT_AVATARS_DIR]));
+const AVATAR_DIRS = AVATARS_DIR === DEFAULT_AVATARS_DIR
+  ? [AVATARS_DIR]
+  : [AVATARS_DIR, DEFAULT_AVATARS_DIR];
 
 function getAvatarPath(filename, dir = AVATARS_DIR) {
-  return path.join(dir, path.basename(filename || ''));
+  const base = path.basename(filename || '');
+  if (!base || base === '.' || base === '..') return null;
+  return path.join(dir, base);
 }
 const OPF_UPLOADS_DIR = path.join(__dirname, 'private', 'opf_uploads');
 if (!fs.existsSync(OPF_UPLOADS_DIR)) fs.mkdirSync(OPF_UPLOADS_DIR, { recursive: true });
@@ -559,9 +563,9 @@ app.get('/avatar/:filename', (req, res) => {
   let filepath = null;
   for (const dir of AVATAR_DIRS) {
     const candidate = getAvatarPath(filename, dir);
-    if (fs.existsSync(candidate)) { filepath = candidate; break; }
+    if (candidate && fs.existsSync(candidate)) { filepath = candidate; break; }
   }
-  if (!filepath) filepath = getAvatarPath(filename);
+  if (!filepath) return res.status(404).json({ error: 'Avatar no encontrado' });
 
   fs.stat(filepath, (err, stats) => {
     if (err || !stats.isFile()) return res.status(404).json({ error: 'Avatar no encontrado' });
@@ -1799,7 +1803,7 @@ app.post('/perfil/avatar', auth, (req, res) => {
         const oldName = path.basename(u.avatar);
         for (const dir of AVATAR_DIRS) {
           const old = getAvatarPath(oldName, dir);
-          if (fs.existsSync(old)) fs.unlink(old, () => {});
+          if (old && fs.existsSync(old)) fs.unlink(old, () => {});
         }
       }
       await dbPool.execute('UPDATE usuarios SET avatar=? WHERE id=?',[url, req.session.usuario.id]);
@@ -1826,7 +1830,7 @@ app.post('/perfil/eliminar_cuenta', auth, async (req, res) => {
       const oldName = path.basename(u.avatar);
       for (const dir of AVATAR_DIRS) {
         const p = getAvatarPath(oldName, dir);
-        if (fs.existsSync(p)) fs.unlinkSync(p);
+        if (p && fs.existsSync(p)) fs.unlinkSync(p);
       }
     }
     await conn.execute('DELETE FROM compras              WHERE id_usuario=?',[uid]);
