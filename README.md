@@ -119,6 +119,7 @@ OCR/Gemini:
 Seguridad y app:
 - SESSION_SECRET
 - NODE_ENV
+- AVATARS_DIR (opcional, ruta escribible para guardar avatares)
 
 Conectividad:
 - TAILSCALE_AUTHKEY
