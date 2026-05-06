@@ -136,8 +136,13 @@ function isReadableDir(dir) {
 function resolveAvatarsDir() {
   const envDir = (process.env.AVATARS_DIR || '').trim();
   const candidates = [];
-  if (envDir) candidates.push(path.resolve(envDir));
-  candidates.push(DEFAULT_AVATARS_DIR, FALLBACK_AVATARS_DIR);
+  if (envDir) {
+    candidates.push(path.resolve(envDir));
+  } else if (IS_PRODUCTION) {
+    candidates.push(FALLBACK_AVATARS_DIR, DEFAULT_AVATARS_DIR);
+  } else {
+    candidates.push(DEFAULT_AVATARS_DIR, FALLBACK_AVATARS_DIR);
+  }
   const failures = [];
   for (const dir of candidates) {
     const result = ensureWritableDir(dir);
@@ -160,6 +165,7 @@ function resolveAvatarsDir() {
 }
 
 const AVATARS_DIR = resolveAvatarsDir();
+console.log(`[AVATAR] Guardando avatares en: ${AVATARS_DIR}`);
 const AVATAR_DIRS = [AVATARS_DIR];
 if (DEFAULT_AVATARS_DIR !== AVATARS_DIR && isReadableDir(DEFAULT_AVATARS_DIR)) {
   AVATAR_DIRS.push(DEFAULT_AVATARS_DIR);
