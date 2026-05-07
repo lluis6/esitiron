@@ -78,7 +78,8 @@ services:
     env_file:
       - ./.env
     environment:
-      - DB_HOST=db
+      - DB_HOST=proxysql  # Antes era 'db'
+      - DB_PORT=6033      # <--- ¡Añade esto! ProxySQL escucha aquí
       - OCR_HOST=ocr
       - NODE_ENV=${NODE_ENV:-production}
     networks:
@@ -87,8 +88,8 @@ services:
       - red_procesamiento
       - red_monitoring
     depends_on:
-      db:
-        condition: service_healthy
+      proxysql:
+        condition: service_started
     restart: on-failure
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health', r => process.exit(r.statusCode === 200 ? 0 : 1))"]
@@ -115,7 +116,16 @@ services:
   db:
     image: mysql:8.0
     container_name: db_mysql
-    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --skip-character-set-client-handshake
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --skip-character-set-client-handshake
+      --server-id=1
+      --log-bin=mysql-bin
+      --binlog-format=ROW
+      --gtid-mode=ON
+      --enforce-gtid-consistency=ON
+      --default-authentication-plugin=mysql_native_password
     env_file:
       - ./.env
     environment:
@@ -144,7 +154,12 @@ services:
       --collation-server=utf8mb4_unicode_ci
       --skip-character-set-client-handshake
       --server-id=2
+      --relay-log=relay-bin
       --read-only=1
+      --super-read-only=1
+      --gtid-mode=ON
+      --enforce-gtid-consistency=ON
+      --default-authentication-plugin=mysql_native_password
     env_file:
       - ./.env
     environment:
@@ -153,10 +168,39 @@ services:
       - red_interna
     volumes:
       - mysql_slave_data:/var/lib/mysql
+      - ./monitoring/scripts/sql/auto_promote.sh:/usr/local/bin/auto_promote.sh:ro
+      - ./.env:/app/.env:ro
+    entrypoint: >
+      bash -c "(while true; do /usr/local/bin/auto_promote.sh; sleep 10; done &) && 
+      /usr/local/bin/docker-entrypoint.sh mysqld"
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     restart: unless-stopped
+
+  proxysql:
+      image: proxysql/proxysql:latest
+      container_name: proxysql
+      ports:
+        - "6032:6032"
+        - "6033:6033"
+      networks:
+        - red_interna
+        - red_monitoring
+      volumes:
+        - proxysql_data:/var/lib/proxysql
+        - ./proxysql.cnf:/etc/proxysql.cnf:ro
+        - ./monitoring/scripts/sql/failover.sh:/var/lib/proxysql/failover.sh:ro
+        - ./.env:/app/.env:ro
+      depends_on:
+        db:
+          condition: service_healthy
+      restart: unless-stopped
 
   node-exporter:
     image: prom/node-exporter:latest
@@ -320,3 +364,4 @@ volumes:
   loki_data:
   promtail_data:
   web_node_modules:
+  proxysql_data:

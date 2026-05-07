@@ -1,0 +1,123 @@
+datadir="/var/lib/proxysql"
+
+admin_variables=
+{
+    admin_credentials="${PROXYSQL_ADMIN_USER}:${PROXYSQL_ADMIN_PASSWORD};${PROXYSQL_ADMIN_RO_USER}:${PROXYSQL_ADMIN_RO_PASSWORD}"
+    mysql_ifaces="0.0.0.0:6032"
+    verbose=1
+}
+
+mysql_variables=
+{
+    threads=4
+    max_connections=2048
+    default_query_delay=0
+    interfaces="0.0.0.0:3306"
+    monitor_username="${PROXYSQL_MONITOR_USER}"
+    monitor_password="${PROXYSQL_MONITOR_PASSWORD}"
+    monitor_interval=5000
+    monitor_connect_timeout=600
+    monitor_ping_timeout=1000
+    monitor_read_timeout=600
+    monitor_write_timeout=600
+}
+
+# Hostgroup 10 = Master (Write)
+# Hostgroup 20 = Slave (Read)
+mysql_servers=
+(
+    {
+        hostgroup_id=10,
+        hostname="db_mysql",
+        port=3306,
+        weight=1,
+        status="ONLINE",
+        max_connections=100,
+        max_replication_lag=0,
+        comment="MySQL Master"
+    },
+    {
+        hostgroup_id=20,
+        hostname="db_mysql_slave",
+        port=3306,
+        weight=1,
+        status="ONLINE",
+        max_connections=200,
+        max_replication_lag=30,
+        comment="MySQL Slave"
+    }
+)
+
+mysql_replication_hostgroups=
+(
+    {
+        writer_hostgroup=10,
+        reader_hostgroup=20,
+        check_type="read_only",
+        comment="Auto route based on read_only"
+    }
+)
+
+mysql_users=
+(
+    {
+        username="${DB_USER_PROXY}",
+        password="${DB_PASSWORD_PROXY}",
+        default_hostgroup=10,
+        transaction_persistent=1,
+        active=1
+    },
+    {
+        username="${PROXYSQL_MONITOR_USER}",
+        password="${PROXYSQL_MONITOR_PASSWORD}",
+        default_hostgroup=10,
+        active=1
+    }
+)
+
+mysql_query_rules=
+(
+    {
+        rule_id=1,
+        match_pattern="^SELECT .* FOR UPDATE",
+        destination_hostgroup=10,
+        apply=1,
+        active=1,
+        comment="Route SELECT ... FOR UPDATE to Master"
+    },
+    {
+        rule_id=2,
+        match_pattern="^SELECT",
+        destination_hostgroup=20,
+        apply=1,
+        active=1,
+        comment="Route SELECT to Slave"
+    },
+    {
+        rule_id=3,
+        match_pattern="^(INSERT|UPDATE|DELETE|CREATE|DROP|ALTER)",
+        destination_hostgroup=10,
+        apply=1,
+        active=1,
+        comment="Route writes to Master"
+    },
+    {
+        rule_id=4,
+        match_pattern="^",
+        destination_hostgroup=10,
+        apply=1,
+        active=1,
+        comment="Default to Master"
+    }
+)
+
+scheduler=
+(
+    {
+        id=1,
+        active=1,
+        interval_ms=10000,
+        filename="/var/lib/proxysql/failover.sh", # Esto es correcto
+        arg1="check"
+    }
+)
