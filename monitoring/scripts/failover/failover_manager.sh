@@ -41,11 +41,17 @@ EOF
 trap 'rm -f "$MYSQL_CNF"' EXIT
 
 mysql_exec() {
-  mysql --defaults-extra-file="$MYSQL_CNF" --protocol=tcp -h "$1" -P "$MYSQL_PORT" -e "$2" 1>/dev/null
+  if ! mysql --defaults-extra-file="$MYSQL_CNF" --protocol=tcp -h "$1" -P "$MYSQL_PORT" -e "$2" 1>/dev/null; then
+    echo "[failover] MySQL exec failed on $1." >&2
+    return 1
+  fi
 }
 
 mysql_exec_file() {
-  mysql --defaults-extra-file="$MYSQL_CNF" --protocol=tcp -h "$1" -P "$MYSQL_PORT" < "$2" 1>/dev/null
+  if ! mysql --defaults-extra-file="$MYSQL_CNF" --protocol=tcp -h "$1" -P "$MYSQL_PORT" < "$2" 1>/dev/null; then
+    echo "[failover] MySQL exec failed on $1 using $2." >&2
+    return 1
+  fi
 }
 
 mysql_ping() {
@@ -85,7 +91,11 @@ while true; do
 
   if mysql_ping "$MASTER_HOST"; then
     if [ "$CURRENT_PRIMARY" != "$MASTER_HOST" ] && [ "$AUTO_REJOIN" = "true" ]; then
-      rejoin_as_replica "$MASTER_HOST" "$CURRENT_PRIMARY"
+      if mysql_ping "$CURRENT_PRIMARY"; then
+        rejoin_as_replica "$MASTER_HOST" "$CURRENT_PRIMARY"
+      else
+        echo "[failover] Primary $CURRENT_PRIMARY unreachable, skipping rejoin." >&2
+      fi
     fi
   else
     if [ "$CURRENT_PRIMARY" = "$MASTER_HOST" ]; then

@@ -309,7 +309,7 @@ En el master (db):
 docker compose exec db sh -lc 'mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "CREATE USER IF NOT EXISTS '\''$REPLICATION_USER'\''@'\''%'\'' IDENTIFIED BY '\''$REPLICATION_PASSWORD'\''; GRANT REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO '\''$REPLICATION_USER'\''@'\''%'\''; FLUSH PRIVILEGES;"'
 docker compose exec db sh -lc 'mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "CREATE USER IF NOT EXISTS '\''$PROXYSQL_MONITOR_USER'\''@'\''%'\'' IDENTIFIED BY '\''$PROXYSQL_MONITOR_PASSWORD'\''; GRANT SELECT, PROCESS, REPLICATION CLIENT ON *.* TO '\''$PROXYSQL_MONITOR_USER'\''@'\''%'\''; FLUSH PRIVILEGES;"'
 ~~~
-Nota: en MySQL 8.0.22+ puedes usar `REPLICATION REPLICA` como sinonimo de `REPLICATION SLAVE`.
+Nota: en MySQL 8.0.22+ puedes usar `REPLICATION REPLICA` como sinónimo de `REPLICATION SLAVE`.
 
 ### 10.3 Inicializar la replica desde snapshot
 1) Genera un dump del master:
@@ -342,6 +342,8 @@ El servicio `failover-manager`:
 Para cambiar el primario de vuelta al master original (failback completo), hazlo manualmente:
 1) Fuerza read_only en el primario actual y promueve el master original.
 2) Reconfigura la replica con `CHANGE REPLICATION SOURCE TO ... SOURCE_AUTO_POSITION=1`.
+
+Si tienes `general_log` activado, los comandos de replicación pueden quedar registrados; mantenlo desactivado en producción.
 
 ### 10.6 Monitorizacion de lag y estado
 - Prometheus scrapea `mysql-exporter-replica` para exponer lag y estado de replica.

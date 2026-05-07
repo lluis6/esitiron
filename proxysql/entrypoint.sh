@@ -33,6 +33,32 @@ escape_for_sed_replacement() {
   printf '%s' "$1" | sed -e 's#[\\/&|]#\\&#g'
 }
 
+ensure_single_line() {
+  case "$1" in
+    *"
+"*)
+      echo "ProxySQL environment values must not contain newlines." >&2
+      exit 1
+      ;;
+  esac
+}
+
+ensure_single_line "$PROXYSQL_ADMIN_USER"
+ensure_single_line "$PROXYSQL_ADMIN_PASSWORD"
+ensure_single_line "$PROXYSQL_ADMIN_PORT"
+ensure_single_line "$PROXYSQL_PORT"
+ensure_single_line "$PROXYSQL_THREADS"
+ensure_single_line "$PROXYSQL_MAX_CONNECTIONS"
+ensure_single_line "$PROXYSQL_STATS_USER"
+ensure_single_line "$PROXYSQL_STATS_PASSWORD"
+ensure_single_line "$PROXYSQL_MONITOR_USER"
+ensure_single_line "$PROXYSQL_MONITOR_PASSWORD"
+ensure_single_line "$DB_USER"
+ensure_single_line "$DB_PASSWORD"
+ensure_single_line "$MYSQL_MASTER_HOST"
+ensure_single_line "$MYSQL_REPLICA_HOST"
+ensure_single_line "$MYSQL_PORT"
+
 ADMIN_USER_ESCAPED="$(escape_for_sed_replacement "$PROXYSQL_ADMIN_USER")"
 ADMIN_PASSWORD_ESCAPED="$(escape_for_sed_replacement "$PROXYSQL_ADMIN_PASSWORD")"
 ADMIN_PORT_ESCAPED="$(escape_for_sed_replacement "$PROXYSQL_ADMIN_PORT")"
