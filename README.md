@@ -306,9 +306,10 @@ Proxy OpenFoodFacts (Nginx):
 ### 10.2 Crear usuarios necesarios
 En el master (db):
 ~~~bash
-docker compose exec db sh -lc 'mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "CREATE USER IF NOT EXISTS '\''$REPLICATION_USER'\''@'\''%'\'' IDENTIFIED BY '\''$REPLICATION_PASSWORD'\''; GRANT REPLICATION REPLICA, REPLICATION CLIENT ON *.* TO '\''$REPLICATION_USER'\''@'\''%'\''; FLUSH PRIVILEGES;"'
+docker compose exec db sh -lc 'mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "CREATE USER IF NOT EXISTS '\''$REPLICATION_USER'\''@'\''%'\'' IDENTIFIED BY '\''$REPLICATION_PASSWORD'\''; GRANT REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO '\''$REPLICATION_USER'\''@'\''%'\''; FLUSH PRIVILEGES;"'
 docker compose exec db sh -lc 'mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "CREATE USER IF NOT EXISTS '\''$PROXYSQL_MONITOR_USER'\''@'\''%'\'' IDENTIFIED BY '\''$PROXYSQL_MONITOR_PASSWORD'\''; GRANT SELECT, PROCESS, REPLICATION CLIENT ON *.* TO '\''$PROXYSQL_MONITOR_USER'\''@'\''%'\''; FLUSH PRIVILEGES;"'
 ~~~
+Nota: en MySQL 8.0.22+ puedes usar `REPLICATION REPLICA` como sinonimo de `REPLICATION SLAVE`.
 
 ### 10.3 Inicializar la replica desde snapshot
 1) Genera un dump del master:

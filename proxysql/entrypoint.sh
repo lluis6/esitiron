@@ -29,25 +29,25 @@ if [ ! -f "$TEMPLATE_PATH" ]; then
   exit 1
 fi
 
-escape_sed() {
+escape_for_sed_replacement() {
   printf '%s' "$1" | sed -e 's#[\\/&|]#\\&#g'
 }
 
-ADMIN_USER_ESCAPED="$(escape_sed "$PROXYSQL_ADMIN_USER")"
-ADMIN_PASSWORD_ESCAPED="$(escape_sed "$PROXYSQL_ADMIN_PASSWORD")"
-ADMIN_PORT_ESCAPED="$(escape_sed "$PROXYSQL_ADMIN_PORT")"
-PORT_ESCAPED="$(escape_sed "$PROXYSQL_PORT")"
-THREADS_ESCAPED="$(escape_sed "$PROXYSQL_THREADS")"
-MAX_CONNECTIONS_ESCAPED="$(escape_sed "$PROXYSQL_MAX_CONNECTIONS")"
-STATS_USER_ESCAPED="$(escape_sed "$PROXYSQL_STATS_USER")"
-STATS_PASSWORD_ESCAPED="$(escape_sed "$PROXYSQL_STATS_PASSWORD")"
-MONITOR_USER_ESCAPED="$(escape_sed "$PROXYSQL_MONITOR_USER")"
-MONITOR_PASSWORD_ESCAPED="$(escape_sed "$PROXYSQL_MONITOR_PASSWORD")"
-DB_USER_ESCAPED="$(escape_sed "$DB_USER")"
-DB_PASSWORD_ESCAPED="$(escape_sed "$DB_PASSWORD")"
-MASTER_HOST_ESCAPED="$(escape_sed "$MYSQL_MASTER_HOST")"
-REPLICA_HOST_ESCAPED="$(escape_sed "$MYSQL_REPLICA_HOST")"
-MYSQL_PORT_ESCAPED="$(escape_sed "$MYSQL_PORT")"
+ADMIN_USER_ESCAPED="$(escape_for_sed_replacement "$PROXYSQL_ADMIN_USER")"
+ADMIN_PASSWORD_ESCAPED="$(escape_for_sed_replacement "$PROXYSQL_ADMIN_PASSWORD")"
+ADMIN_PORT_ESCAPED="$(escape_for_sed_replacement "$PROXYSQL_ADMIN_PORT")"
+PORT_ESCAPED="$(escape_for_sed_replacement "$PROXYSQL_PORT")"
+THREADS_ESCAPED="$(escape_for_sed_replacement "$PROXYSQL_THREADS")"
+MAX_CONNECTIONS_ESCAPED="$(escape_for_sed_replacement "$PROXYSQL_MAX_CONNECTIONS")"
+STATS_USER_ESCAPED="$(escape_for_sed_replacement "$PROXYSQL_STATS_USER")"
+STATS_PASSWORD_ESCAPED="$(escape_for_sed_replacement "$PROXYSQL_STATS_PASSWORD")"
+MONITOR_USER_ESCAPED="$(escape_for_sed_replacement "$PROXYSQL_MONITOR_USER")"
+MONITOR_PASSWORD_ESCAPED="$(escape_for_sed_replacement "$PROXYSQL_MONITOR_PASSWORD")"
+DB_USER_ESCAPED="$(escape_for_sed_replacement "$DB_USER")"
+DB_PASSWORD_ESCAPED="$(escape_for_sed_replacement "$DB_PASSWORD")"
+MASTER_HOST_ESCAPED="$(escape_for_sed_replacement "$MYSQL_MASTER_HOST")"
+REPLICA_HOST_ESCAPED="$(escape_for_sed_replacement "$MYSQL_REPLICA_HOST")"
+MYSQL_PORT_ESCAPED="$(escape_for_sed_replacement "$MYSQL_PORT")"
 
 sed \
   -e "s|__PROXYSQL_ADMIN_USER__|$ADMIN_USER_ESCAPED|g" \

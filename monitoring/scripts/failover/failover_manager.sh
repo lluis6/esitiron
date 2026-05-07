@@ -15,6 +15,8 @@ CHECK_INTERVAL="${FAILOVER_CHECK_INTERVAL:-10}"
 AUTO_REJOIN="${FAILOVER_AUTO_REJOIN:-true}"
 FAILOVER_ENABLED="${FAILOVER_ENABLED:-true}"
 
+umask 077
+
 if [ -z "$ROOT_PASSWORD" ]; then
   echo "DB_ROOT_PASSWORD is required for failover manager." >&2
   exit 1
@@ -31,7 +33,6 @@ if [ ! -f "$STATE_FILE" ]; then
 fi
 
 MYSQL_CNF="$(mktemp)"
-chmod 600 "$MYSQL_CNF"
 cat > "$MYSQL_CNF" <<EOF
 [client]
 user=$ROOT_USER
@@ -40,11 +41,11 @@ EOF
 trap 'rm -f "$MYSQL_CNF"' EXIT
 
 mysql_exec() {
-  mysql --defaults-extra-file="$MYSQL_CNF" --protocol=tcp -h "$1" -P "$MYSQL_PORT" -e "$2" >/dev/null
+  mysql --defaults-extra-file="$MYSQL_CNF" --protocol=tcp -h "$1" -P "$MYSQL_PORT" -e "$2" 1>/dev/null
 }
 
 mysql_exec_file() {
-  mysql --defaults-extra-file="$MYSQL_CNF" --protocol=tcp -h "$1" -P "$MYSQL_PORT" < "$2" >/dev/null
+  mysql --defaults-extra-file="$MYSQL_CNF" --protocol=tcp -h "$1" -P "$MYSQL_PORT" < "$2" 1>/dev/null
 }
 
 mysql_ping() {
@@ -62,7 +63,6 @@ promote_replica() {
 rejoin_as_replica() {
   echo "[failover] Rejoining $1 as replica of $2."
   tmp_sql="$(mktemp)"
-  chmod 600 "$tmp_sql"
   cat > "$tmp_sql" <<EOF
 SET GLOBAL super_read_only=1;
 SET GLOBAL read_only=1;
