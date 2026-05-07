@@ -130,6 +130,21 @@ Monitorizacion:
 - GF_ADMIN_PASSWORD
 - METRICS_PORT
 
+ProxySQL + failover:
+- PROXYSQL_ADMIN_USER
+- PROXYSQL_ADMIN_PASSWORD
+- PROXYSQL_MONITOR_USER
+- PROXYSQL_MONITOR_PASSWORD
+- PROXYSQL_STATS_USER (opcional, por defecto igual a admin)
+- PROXYSQL_STATS_PASSWORD (opcional, por defecto igual a admin)
+- PROXYSQL_PORT (opcional, por defecto 3306)
+- PROXYSQL_ADMIN_PORT (opcional, por defecto 6032)
+- REPLICATION_USER
+- REPLICATION_PASSWORD
+- FAILOVER_CHECK_INTERVAL (opcional, segundos)
+- FAILOVER_AUTO_REJOIN (opcional, true/false)
+- FAILOVER_ENABLED (opcional, true/false)
+
 Recomendado:
 - No subir .env al repositorio.
 - Rotar cualquier credencial que haya quedado expuesta.
@@ -281,6 +296,55 @@ Proxy OpenFoodFacts (Nginx):
 - OpenFoodFacts tiene fallback multi-origen para mejorar resiliencia cuando hay respuestas HTML/503.
 - /avatars/ directo esta bloqueado en Nginx; la entrega segura se hace por /avatar/:filename validando sesion.
 - Grafana no tiene puerto publicado al host por diseno de seguridad.
+
+## 10. ProxySQL + Replicacion MySQL (failover)
+
+### 10.1 Requisitos previos
+- La config de MySQL ya activa GTID y binlog en master y replica via docker-compose.
+- Si ya tienes volumenes con datos antiguos, puede ser necesario reiniciar los volumenes para aplicar GTID (esto borra datos).
+
+### 10.2 Crear usuarios necesarios
+En el master (db):
+~~~bash
+docker compose exec db sh -lc 'mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "CREATE USER IF NOT EXISTS '\''$REPLICATION_USER'\''@'\''%'\'' IDENTIFIED BY '\''$REPLICATION_PASSWORD'\''; GRANT REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO '\''$REPLICATION_USER'\''@'\''%'\''; FLUSH PRIVILEGES;"'
+docker compose exec db sh -lc 'mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "CREATE USER IF NOT EXISTS '\''$PROXYSQL_MONITOR_USER'\''@'\''%'\'' IDENTIFIED BY '\''$PROXYSQL_MONITOR_PASSWORD'\''; GRANT SELECT, PROCESS, REPLICATION CLIENT ON *.* TO '\''$PROXYSQL_MONITOR_USER'\''@'\''%'\''; FLUSH PRIVILEGES;"'
+~~~
+
+### 10.3 Inicializar la replica desde snapshot
+1) Genera un dump del master:
+~~~bash
+docker compose exec -T db sh -lc 'mysqldump -u root -p"$MYSQL_ROOT_PASSWORD" --single-transaction --set-gtid-purged=ON "$MYSQL_DATABASE"' > /tmp/master_dump.sql
+~~~
+2) Restaura en la replica:
+~~~bash
+docker compose exec -T db_replica sh -lc 'mysql -u root -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' < /tmp/master_dump.sql
+~~~
+3) Configura la replica (GTID):
+~~~bash
+docker compose exec db_replica sh -lc 'mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "CHANGE REPLICATION SOURCE TO SOURCE_HOST='\''db'\'', SOURCE_USER='\''$REPLICATION_USER'\'', SOURCE_PASSWORD='\''$REPLICATION_PASSWORD'\'', SOURCE_AUTO_POSITION=1; START REPLICA;"'
+~~~
+4) Verifica estado:
+~~~bash
+docker compose exec db_replica sh -lc 'mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "SHOW REPLICA STATUS\\G"'
+~~~
+
+### 10.4 ProxySQL y conexion de la app
+- La app ya apunta a ProxySQL con DB_HOST=proxysql.
+- ProxySQL escucha en 3306 dentro de red interna (configurable con PROXYSQL_PORT).
+- Reads se enrutan a la replica (SELECT) y writes al master.
+
+### 10.5 Failover automatico (script)
+El servicio `failover-manager`:
+- Detecta caida del master y promueve la replica.
+- Si `FAILOVER_AUTO_REJOIN=true`, reengancha el master recuperado como replica del nuevo primario.
+
+Para cambiar el primario de vuelta al master original (failback completo), hazlo manualmente:
+1) Fuerza read_only en el primario actual y promueve el master original.
+2) Reconfigura la replica con `CHANGE REPLICATION SOURCE TO ... SOURCE_AUTO_POSITION=1`.
+
+### 10.6 Monitorizacion de lag y estado
+- Prometheus scrapea `mysql-exporter-replica` para exponer lag y estado de replica.
+- Métricas útiles: `mysql_slave_status_seconds_behind_master`, `mysql_slave_status_slave_io_running`, `mysql_slave_status_slave_sql_running`.
 
 ---
 Si quieres, en un siguiente paso puedo anadir tambien un .env.example limpio y una seccion de troubleshooting por errores tipicos (OCR, DB charset, timeouts OFF, permisos Docker).

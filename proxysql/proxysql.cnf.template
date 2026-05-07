@@ -1,0 +1,45 @@
+datadir="/var/lib/proxysql"
+
+admin_variables=
+{
+  admin_credentials="__PROXYSQL_ADMIN_USER__:__PROXYSQL_ADMIN_PASSWORD__"
+  mysql_ifaces="0.0.0.0:__PROXYSQL_ADMIN_PORT__"
+  stats_credentials="__PROXYSQL_STATS_USER__:__PROXYSQL_STATS_PASSWORD__"
+}
+
+mysql_variables=
+{
+  threads=__PROXYSQL_THREADS__
+  max_connections=__PROXYSQL_MAX_CONNECTIONS__
+  default_query_timeout=36000000
+  connect_timeout_server=3000
+  monitor_username="__PROXYSQL_MONITOR_USER__"
+  monitor_password="__PROXYSQL_MONITOR_PASSWORD__"
+  monitor_connect_interval=20000
+  monitor_ping_interval=10000
+  monitor_read_only_interval=1500
+  interfaces="0.0.0.0:__PROXYSQL_PORT__"
+  server_version="8.0.0"
+}
+
+mysql_servers =
+(
+  { address="__MYSQL_MASTER_HOST__", port=__MYSQL_PORT__, hostgroup=10, max_connections=200 },
+  { address="__MYSQL_REPLICA_HOST__", port=__MYSQL_PORT__, hostgroup=20, max_connections=200 }
+)
+
+mysql_replication_hostgroups =
+(
+  { writer_hostgroup=10, reader_hostgroup=20, check_type="read_only" }
+)
+
+mysql_users =
+(
+  { username="__DB_USER__", password="__DB_PASSWORD__", default_hostgroup=10, transaction_persistent=1, active=1 }
+)
+
+mysql_query_rules =
+(
+  { rule_id=1, active=1, match_pattern="^SELECT .*FOR UPDATE", destination_hostgroup=10, apply=1 },
+  { rule_id=2, active=1, match_pattern="^SELECT", destination_hostgroup=20, apply=1 }
+)

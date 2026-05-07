@@ -118,6 +118,7 @@ if (!fs.existsSync(OPF_UPLOADS_DIR)) fs.mkdirSync(OPF_UPLOADS_DIR, { recursive: 
 // ── Base de datos ─────────────────────────────────────────────
 const dbPool = mysql.createPool({
   host:               process.env.DB_HOST     || 'db',
+  port:               Number(process.env.DB_PORT || 3306),
   user:               process.env.DB_USER     || 'user_seguro',
   password:           process.env.DB_PASSWORD || 'password',
   database:           process.env.DB_NAME     || 'tiquets_db',

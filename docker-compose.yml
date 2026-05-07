@@ -78,7 +78,8 @@ services:
     env_file:
       - ./.env
     environment:
-      - DB_HOST=db
+      - DB_HOST=proxysql
+      - DB_PORT=3306
       - OCR_HOST=ocr
       - NODE_ENV=${NODE_ENV:-production}
     networks:
@@ -115,7 +116,16 @@ services:
   db:
     image: mysql:8.0
     container_name: db_mysql
-    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --skip-character-set-client-handshake
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --skip-character-set-client-handshake
+      --server-id=1
+      --log-bin=mysql-bin
+      --binlog_format=ROW
+      --gtid_mode=ON
+      --enforce_gtid_consistency=ON
+      --log_slave_updates=ON
     env_file:
       - ./.env
     environment:
@@ -145,6 +155,12 @@ services:
       --skip-character-set-client-handshake
       --server-id=2
       --read-only=1
+      --log-bin=mysql-bin
+      --relay-log=relay-bin
+      --binlog_format=ROW
+      --gtid_mode=ON
+      --enforce_gtid_consistency=ON
+      --log_slave_updates=ON
     env_file:
       - ./.env
     environment:
@@ -156,6 +172,68 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    restart: unless-stopped
+
+  proxysql:
+    image: proxysql/proxysql:2.6
+    container_name: proxysql
+    env_file:
+      - ./.env
+    environment:
+      - PROXYSQL_ADMIN_USER=${PROXYSQL_ADMIN_USER}
+      - PROXYSQL_ADMIN_PASSWORD=${PROXYSQL_ADMIN_PASSWORD}
+      - PROXYSQL_ADMIN_PORT=${PROXYSQL_ADMIN_PORT:-6032}
+      - PROXYSQL_PORT=${PROXYSQL_PORT:-3306}
+      - PROXYSQL_MONITOR_USER=${PROXYSQL_MONITOR_USER}
+      - PROXYSQL_MONITOR_PASSWORD=${PROXYSQL_MONITOR_PASSWORD}
+      - PROXYSQL_STATS_USER=${PROXYSQL_STATS_USER}
+      - PROXYSQL_STATS_PASSWORD=${PROXYSQL_STATS_PASSWORD}
+      - MYSQL_MASTER_HOST=db
+      - MYSQL_REPLICA_HOST=db_replica
+      - MYSQL_PORT=3306
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+    volumes:
+      - ./proxysql/proxysql.cnf.template:/etc/proxysql.cnf.template:ro
+      - ./proxysql/entrypoint.sh:/entrypoint.sh:ro
+      - proxysql_data:/var/lib/proxysql
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
+    networks:
+      - red_interna
+    depends_on:
+      db:
+        condition: service_healthy
+      db_replica:
+        condition: service_started
+    restart: unless-stopped
+
+  failover-manager:
+    image: mysql:8.0
+    container_name: failover-manager
+    env_file:
+      - ./.env
+    environment:
+      - MYSQL_MASTER_HOST=db
+      - MYSQL_REPLICA_HOST=db_replica
+      - MYSQL_PORT=3306
+      - MYSQL_ROOT_USER=root
+      - DB_ROOT_PASSWORD=${DB_ROOT_PASSWORD}
+      - REPLICATION_USER=${REPLICATION_USER}
+      - REPLICATION_PASSWORD=${REPLICATION_PASSWORD}
+      - FAILOVER_CHECK_INTERVAL=${FAILOVER_CHECK_INTERVAL:-10}
+      - FAILOVER_AUTO_REJOIN=${FAILOVER_AUTO_REJOIN:-true}
+      - FAILOVER_ENABLED=${FAILOVER_ENABLED:-true}
+    volumes:
+      - ./monitoring/scripts/failover/failover_manager.sh:/scripts/failover_manager.sh:ro
+      - failover_state:/var/lib/failover
+    entrypoint: ["/bin/sh", "/scripts/failover_manager.sh"]
+    networks:
+      - red_interna
+    depends_on:
+      db:
+        condition: service_healthy
+      db_replica:
+        condition: service_started
     restart: unless-stopped
 
   node-exporter:
@@ -232,6 +310,22 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  mysql-exporter-replica:
+    image: prom/mysqld-exporter:v0.14.0
+    container_name: mysql-exporter-replica
+    environment:
+      - DATA_SOURCE_NAME=${DB_USER}:${DB_PASSWORD}@(db_replica:3306)/
+    command:
+      - "--collect.info_schema.innodb_metrics"
+      - "--collect.info_schema.processlist"
+    networks:
+      - red_interna
+      - red_monitoring
+    depends_on:
+      db_replica:
+        condition: service_started
+    restart: unless-stopped
+
   prometheus:
     image: prom/prometheus:latest
     container_name: prometheus
@@ -249,6 +343,7 @@ services:
       - node-exporter
       - cadvisor
       - mysql-exporter
+      - mysql-exporter-replica
       - nginx-exporter
     restart: unless-stopped
 
@@ -315,6 +410,8 @@ volumes:
   mysql_data:
   mysql_slave_data:
   tailscale_state:
+  proxysql_data:
+  failover_state:
   prometheus_data:
   grafana_data:
   loki_data:
