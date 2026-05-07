@@ -30,7 +30,7 @@ if [ ! -f "$TEMPLATE_PATH" ]; then
 fi
 
 escape_sed() {
-  printf '%s' "$1" | sed -e 's#[&|/\\]#\\&#g'
+  printf '%s' "$1" | sed -e 's#[\\/&|]#\\&#g'
 }
 
 ADMIN_USER_ESCAPED="$(escape_sed "$PROXYSQL_ADMIN_USER")"

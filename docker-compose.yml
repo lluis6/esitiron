@@ -122,10 +122,10 @@ services:
       --skip-character-set-client-handshake
       --server-id=1
       --log-bin=mysql-bin
-      --binlog_format=ROW
-      --gtid_mode=ON
-      --enforce_gtid_consistency=ON
-      --log_slave_updates=ON
+      --binlog-format=ROW
+      --gtid-mode=ON
+      --enforce-gtid-consistency=ON
+      --log-slave-updates=ON
     env_file:
       - ./.env
     environment:
@@ -157,10 +157,10 @@ services:
       --read-only=1
       --log-bin=mysql-bin
       --relay-log=relay-bin
-      --binlog_format=ROW
-      --gtid_mode=ON
-      --enforce_gtid_consistency=ON
-      --log_slave_updates=ON
+      --binlog-format=ROW
+      --gtid-mode=ON
+      --enforce-gtid-consistency=ON
+      --log-slave-updates=ON
     env_file:
       - ./.env
     environment:

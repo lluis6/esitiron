@@ -135,8 +135,8 @@ ProxySQL + failover:
 - PROXYSQL_ADMIN_PASSWORD
 - PROXYSQL_MONITOR_USER
 - PROXYSQL_MONITOR_PASSWORD
-- PROXYSQL_STATS_USER (opcional, por defecto igual a admin)
-- PROXYSQL_STATS_PASSWORD (opcional, por defecto igual a admin)
+- PROXYSQL_STATS_USER (opcional, por defecto igual a PROXYSQL_ADMIN_USER)
+- PROXYSQL_STATS_PASSWORD (opcional, por defecto igual a PROXYSQL_ADMIN_PASSWORD)
 - PROXYSQL_PORT (opcional, por defecto 3306)
 - PROXYSQL_ADMIN_PORT (opcional, por defecto 6032)
 - REPLICATION_USER
@@ -301,7 +301,7 @@ Proxy OpenFoodFacts (Nginx):
 
 ### 10.1 Requisitos previos
 - La config de MySQL ya activa GTID y binlog en master y replica via docker-compose.
-- Si ya tienes volumenes con datos antiguos, puede ser necesario reiniciar los volumenes para aplicar GTID (esto borra datos).
+- Si ya tienes volúmenes con datos antiguos, puede ser necesario reiniciar los volúmenes para aplicar GTID (esto borra datos).
 
 ### 10.2 Crear usuarios necesarios
 En el master (db):

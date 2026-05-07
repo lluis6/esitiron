@@ -30,18 +30,25 @@ if [ ! -f "$STATE_FILE" ]; then
   echo "$MASTER_HOST" > "$STATE_FILE"
 fi
 
-export MYSQL_PWD="$ROOT_PASSWORD"
-
-mysql_query() {
-  mysql --protocol=tcp -h "$1" -P "$MYSQL_PORT" -u "$ROOT_USER" -N -B -e "$2"
-}
+MYSQL_CNF="$(mktemp)"
+chmod 600 "$MYSQL_CNF"
+cat > "$MYSQL_CNF" <<EOF
+[client]
+user=$ROOT_USER
+password=$ROOT_PASSWORD
+EOF
+trap 'rm -f "$MYSQL_CNF"' EXIT
 
 mysql_exec() {
-  mysql --protocol=tcp -h "$1" -P "$MYSQL_PORT" -u "$ROOT_USER" -e "$2" >/dev/null
+  mysql --defaults-extra-file="$MYSQL_CNF" --protocol=tcp -h "$1" -P "$MYSQL_PORT" -e "$2" >/dev/null
+}
+
+mysql_exec_file() {
+  mysql --defaults-extra-file="$MYSQL_CNF" --protocol=tcp -h "$1" -P "$MYSQL_PORT" < "$2" >/dev/null
 }
 
 mysql_ping() {
-  mysqladmin --protocol=tcp -h "$1" -P "$MYSQL_PORT" -u "$ROOT_USER" ping --silent >/dev/null 2>&1
+  mysqladmin --defaults-extra-file="$MYSQL_CNF" --protocol=tcp -h "$1" -P "$MYSQL_PORT" ping --silent >/dev/null 2>&1
 }
 
 promote_replica() {
@@ -54,12 +61,18 @@ promote_replica() {
 
 rejoin_as_replica() {
   echo "[failover] Rejoining $1 as replica of $2."
-  mysql_exec "$1" "SET GLOBAL super_read_only=1;"
-  mysql_exec "$1" "SET GLOBAL read_only=1;"
-  mysql_exec "$1" "STOP REPLICA;"
-  mysql_exec "$1" "RESET REPLICA ALL;"
-  mysql_exec "$1" "CHANGE REPLICATION SOURCE TO SOURCE_HOST='$2', SOURCE_USER='$REPLICATION_USER', SOURCE_PASSWORD='$REPLICATION_PASSWORD', SOURCE_AUTO_POSITION=1;"
-  mysql_exec "$1" "START REPLICA;"
+  tmp_sql="$(mktemp)"
+  chmod 600 "$tmp_sql"
+  cat > "$tmp_sql" <<EOF
+SET GLOBAL super_read_only=1;
+SET GLOBAL read_only=1;
+STOP REPLICA;
+RESET REPLICA ALL;
+CHANGE REPLICATION SOURCE TO SOURCE_HOST='$2', SOURCE_USER='$REPLICATION_USER', SOURCE_PASSWORD='$REPLICATION_PASSWORD', SOURCE_AUTO_POSITION=1;
+START REPLICA;
+EOF
+  mysql_exec_file "$1" "$tmp_sql"
+  rm -f "$tmp_sql"
 }
 
 while true; do
