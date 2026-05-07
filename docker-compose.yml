@@ -164,7 +164,7 @@ services:
     profiles:
       - orchestrator
     volumes:
-      - ./ORCHESTRATOR.json:/etc/orchestrator.conf.json:ro
+      - ${ORCHESTRATOR_CONFIG_PATH:-./ORCHESTRATOR.json}:/etc/orchestrator.conf.json:ro
       - orchestrator_data:/var/lib/orchestrator
     ports:
       - "3002:3000"
