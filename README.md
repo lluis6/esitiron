@@ -100,20 +100,23 @@ Servicios principales:
 ORCHESTRATOR.json (plantilla):
 - Usa variables ${ORCHESTRATOR_TOPOLOGY_USER}/${ORCHESTRATOR_TOPOLOGY_PASSWORD} y
   ${ORCHESTRATOR_DB_USER}/${ORCHESTRATOR_DB_PASSWORD} (define estas variables en .env).
+- Si no tienes .env, copia `.env.example` a `.env` y ajusta los valores.
 - Sustituye estas variables en ORCHESTRATOR.json (por ejemplo con `envsubst`) y
   apunta `ORCHESTRATOR_CONFIG_PATH` al archivo renderizado antes de montar.
+- No hay sustitución automática dentro del contenedor: usa un archivo renderizado o
+  edita ORCHESTRATOR.json antes de iniciar el perfil.
 - MySQLTopologyUser/Password: credenciales para que Orchestrator descubra y monitorice los nodos MySQL.
 - MySQLOrchestratorUser/Password: credenciales de la base de datos interna del propio Orchestrator.
 - BackendDB usa MySQL en `db:3306` y la base `orchestrator` (créala antes de arrancar).
 - Asegúrate de crear esos usuarios en MySQL con los privilegios adecuados antes de arrancar Orchestrator.
   Ejemplo (ajusta según tu política):
-  ~~~sql
+  ```sql
   CREATE DATABASE orchestrator;
   CREATE USER 'orchestrator_topology'@'%' IDENTIFIED BY '...';
   GRANT REPLICATION CLIENT, PROCESS, SUPER ON *.* TO 'orchestrator_topology'@'%';
   CREATE USER 'orchestrator'@'%' IDENTIFIED BY '...';
   GRANT ALL PRIVILEGES ON orchestrator.* TO 'orchestrator'@'%';
-  ~~~
+  ```
 - Tras cambiar credenciales o el archivo renderizado, recrea el servicio con
   `docker compose --profile orchestrator up -d --force-recreate`
   (o `docker-compose --profile orchestrator up -d --force-recreate`).

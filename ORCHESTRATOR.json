@@ -1,5 +1,5 @@
 {
-  "Debug": true,
+  "Debug": false,
   "ListenAddress": ":3000",
   "BackendDB": "mysql",
   "MySQLTopologyUser": "${ORCHESTRATOR_TOPOLOGY_USER}",
