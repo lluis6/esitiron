@@ -30,16 +30,18 @@ if [ ! -f "$STATE_FILE" ]; then
   echo "$MASTER_HOST" > "$STATE_FILE"
 fi
 
+export MYSQL_PWD="$ROOT_PASSWORD"
+
 mysql_query() {
-  mysql --protocol=tcp -h "$1" -P "$MYSQL_PORT" -u "$ROOT_USER" -p"$ROOT_PASSWORD" -N -B -e "$2"
+  mysql --protocol=tcp -h "$1" -P "$MYSQL_PORT" -u "$ROOT_USER" -N -B -e "$2"
 }
 
 mysql_exec() {
-  mysql --protocol=tcp -h "$1" -P "$MYSQL_PORT" -u "$ROOT_USER" -p"$ROOT_PASSWORD" -e "$2" >/dev/null
+  mysql --protocol=tcp -h "$1" -P "$MYSQL_PORT" -u "$ROOT_USER" -e "$2" >/dev/null
 }
 
 mysql_ping() {
-  mysqladmin --protocol=tcp -h "$1" -P "$MYSQL_PORT" -u "$ROOT_USER" -p"$ROOT_PASSWORD" ping --silent >/dev/null 2>&1
+  mysqladmin --protocol=tcp -h "$1" -P "$MYSQL_PORT" -u "$ROOT_USER" ping --silent >/dev/null 2>&1
 }
 
 promote_replica() {
