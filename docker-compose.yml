@@ -158,6 +158,23 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  orchestrator:
+    image: openark/orchestrator:latest
+    container_name: orchestrator
+    profiles:
+      - orchestrator
+    volumes:
+      - ./ORCHESTRATOR.json:/etc/orchestrator.conf.json:ro
+      - orchestrator_data:/var/lib/orchestrator
+    ports:
+      - "3002:3000"
+    networks:
+      - red_interna
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
   node-exporter:
     image: prom/node-exporter:latest
     container_name: node-exporter
@@ -320,3 +337,4 @@ volumes:
   loki_data:
   promtail_data:
   web_node_modules:
+  orchestrator_data:

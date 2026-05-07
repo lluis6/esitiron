@@ -93,6 +93,7 @@ Servicios principales:
 - web (Node.js): no publica puerto directamente al host (acceso via proxy).
 - ocr (FastAPI): interno.
 - db (MySQL 8): interno.
+- orchestrator (MySQL Orchestrator): perfil `orchestrator`, usa ORCHESTRATOR.json.
 - tailscale / cloudflared: conectividad externa.
 - prometheus / grafana / loki / promtail + exporters: observabilidad interna.
 
