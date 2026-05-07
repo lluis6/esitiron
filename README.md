@@ -97,6 +97,11 @@ Servicios principales:
 - tailscale / cloudflared: conectividad externa.
 - prometheus / grafana / loki / promtail + exporters: observabilidad interna.
 
+ORCHESTRATOR.json (plantilla):
+- MySQLTopologyUser/Password: credenciales para que Orchestrator descubra y monitorice los nodos MySQL.
+- MySQLOrchestratorUser/Password: credenciales de la base de datos interna del propio Orchestrator.
+- Tras cambiar credenciales, recrea el servicio con `docker compose --profile orchestrator up -d --force-recreate`.
+
 Redes:
 - red_publica
 - red_interna (internal)
