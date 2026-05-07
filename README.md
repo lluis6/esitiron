@@ -98,8 +98,11 @@ Servicios principales:
 - prometheus / grafana / loki / promtail + exporters: observabilidad interna.
 
 ORCHESTRATOR.json (plantilla):
+- Usa variables ${ORCHESTRATOR_TOPOLOGY_USER}/${ORCHESTRATOR_TOPOLOGY_PASSWORD} y
+  ${ORCHESTRATOR_DB_USER}/${ORCHESTRATOR_DB_PASSWORD} (defínelas en .env).
 - MySQLTopologyUser/Password: credenciales para que Orchestrator descubra y monitorice los nodos MySQL.
 - MySQLOrchestratorUser/Password: credenciales de la base de datos interna del propio Orchestrator.
+- Asegura crear esos usuarios en MySQL con los privilegios adecuados antes de arrancar Orchestrator.
 - Tras cambiar credenciales, recrea el servicio con `docker compose --profile orchestrator up -d --force-recreate`.
 
 Redes:
