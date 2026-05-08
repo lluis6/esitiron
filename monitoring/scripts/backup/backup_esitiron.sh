@@ -54,7 +54,7 @@ fi
 
 # Backup de Base de Datos
 echo "Extrayendo base de datos $DB_NAME..."
-docker exec -i "$CONTAINER_BD" mysqldump -u"$DB_USER" -p"$DB_PASSWORD" "$DB_NAME" 2>>"$LOG_FILE" | gzip > "$ARCHIVO_SQL"
+docker exec -i "$CONTAINER_BD" mysqldump --set-gtid-purged=OFF -u"$DB_USER" -p"$DB_PASSWORD" "$DB_NAME" 2>>"$LOG_FILE" | gzip > "$ARCHIVO_SQL"
 if [ $? -eq 0 ]; then
     echo "[$(date)] DB Backup OK: $ARCHIVO_SQL" >> $LOG_FILE
 else

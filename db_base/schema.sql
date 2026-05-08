@@ -30,7 +30,6 @@ CREATE TABLE IF NOT EXISTS usuarios (
 
 -- ─────────────────────────────────────────────────────────────
 -- 2. Catálogo Maestro de Productos
---    Global para todos los usuarios.
 -- ─────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS productos_maestros (
     id              INT UNSIGNED    NOT NULL AUTO_INCREMENT,
@@ -44,7 +43,7 @@ CREATE TABLE IF NOT EXISTS productos_maestros (
 ) ENGINE=InnoDB;
 
 -- ─────────────────────────────────────────────────────────────
--- 3. Tiquets (cabecera de la compra)
+-- 3. Tiquets
 -- ─────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS tiquets (
     id              INT UNSIGNED    NOT NULL AUTO_INCREMENT,
@@ -63,7 +62,7 @@ CREATE TABLE IF NOT EXISTS tiquets (
 ) ENGINE=InnoDB;
 
 -- ─────────────────────────────────────────────────────────────
--- 4. Compras (detalle de cada tiquet, relación 1:N)
+-- 4. Compras
 -- ─────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS compras (
     id              INT UNSIGNED    NOT NULL AUTO_INCREMENT,
@@ -85,7 +84,7 @@ CREATE TABLE IF NOT EXISTS compras (
 ) ENGINE=InnoDB;
 
 -- ─────────────────────────────────────────────────────────────
--- 5. Historial de Precios 
+-- 5. Historial de Precios
 -- ─────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS historial_precios (
     id              INT UNSIGNED    NOT NULL AUTO_INCREMENT,
@@ -99,17 +98,8 @@ CREATE TABLE IF NOT EXISTS historial_precios (
 ) ENGINE=InnoDB;
 
 -- ─────────────────────────────────────────────────────────────
--- 6. Auditoría de Seguridad y 7. 2FA Backup
+-- 6. 2FA Backup
 -- ─────────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS login_attempts (
-    id              INT UNSIGNED    NOT NULL AUTO_INCREMENT,
-    id_usuario      INT UNSIGNED    NOT NULL,
-    ip_address      VARCHAR(45)     NOT NULL,
-    intento_fecha   DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (id),
-    FOREIGN KEY (id_usuario) REFERENCES usuarios(id) ON DELETE CASCADE
-) ENGINE=InnoDB;
-
 CREATE TABLE IF NOT EXISTS codigos_recuperacion (
     id              INT UNSIGNED    NOT NULL AUTO_INCREMENT,
     id_usuario      INT UNSIGNED    NOT NULL,
@@ -120,7 +110,7 @@ CREATE TABLE IF NOT EXISTS codigos_recuperacion (
 ) ENGINE=InnoDB;
 
 -- ─────────────────────────────────────────────────────────────
--- 8. DICCIONARIO DE PRODUCTOS (Sistema Inteligente de Redirección)
+-- 7. Diccionario de Productos
 -- ─────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS diccionario_productos (
     id                  INT UNSIGNED    NOT NULL AUTO_INCREMENT,
@@ -137,7 +127,7 @@ CREATE TABLE IF NOT EXISTS diccionario_productos (
 ) ENGINE=InnoDB;
 
 -- ─────────────────────────────────────────────────────────────
--- 9. Sistema de Verificación Colaborativa
+-- 8. Sistema de Verificación Colaborativa
 -- ─────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS verificaciones_barcode (
     id              INT UNSIGNED    NOT NULL AUTO_INCREMENT,
@@ -161,7 +151,7 @@ CREATE TABLE IF NOT EXISTS votos_usuario (
     votado_en       DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
     UNIQUE KEY uk_usuario_verif (id_usuario, id_verificacion),
-    FOREIGN KEY (id_usuario) REFERENCES usuarios(id) ON DELETE CASCADE,
+    FOREIGN KEY (id_usuario)      REFERENCES usuarios(id)               ON DELETE CASCADE,
     FOREIGN KEY (id_verificacion) REFERENCES verificaciones_barcode(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
@@ -175,7 +165,7 @@ CREATE TABLE IF NOT EXISTS verificaciones_producto (
     PRIMARY KEY (id),
     INDEX idx_producto_estado (id_producto, estado),
     FOREIGN KEY (id_producto) REFERENCES productos_maestros(id) ON DELETE CASCADE,
-    FOREIGN KEY (id_usuario) REFERENCES usuarios(id) ON DELETE CASCADE
+    FOREIGN KEY (id_usuario)  REFERENCES usuarios(id)           ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS opf_pendientes (
@@ -192,15 +182,13 @@ CREATE TABLE IF NOT EXISTS opf_pendientes (
     actualizado_en DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
     INDEX idx_opf_pend_usuario (id_usuario),
-    INDEX idx_opf_pend_estado (estado),
+    INDEX idx_opf_pend_estado  (estado),
     FOREIGN KEY (id_usuario) REFERENCES usuarios(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
 -- ─────────────────────────────────────────────────────────────
--- 10. Sistema de Grupos Colaborativos
+-- 9. Sistema de Grupos Colaborativos
 -- ─────────────────────────────────────────────────────────────
-
--- Grupos
 CREATE TABLE IF NOT EXISTS grupos (
     id              INT UNSIGNED    NOT NULL AUTO_INCREMENT,
     nombre          VARCHAR(100)    NOT NULL,
@@ -212,7 +200,6 @@ CREATE TABLE IF NOT EXISTS grupos (
     INDEX idx_grupos_creador (creador_id)
 ) ENGINE=InnoDB;
 
--- Miembros de grupo
 CREATE TABLE IF NOT EXISTS miembros_grupo (
     id              INT UNSIGNED    NOT NULL AUTO_INCREMENT,
     grupo_id        INT UNSIGNED    NOT NULL,
@@ -226,7 +213,6 @@ CREATE TABLE IF NOT EXISTS miembros_grupo (
     INDEX idx_miembros_usuario (usuario_id)
 ) ENGINE=InnoDB;
 
--- Invitaciones internas (sin email)
 CREATE TABLE IF NOT EXISTS invitaciones (
     id              INT UNSIGNED    NOT NULL AUTO_INCREMENT,
     grupo_id        INT UNSIGNED    NOT NULL,
@@ -243,7 +229,6 @@ CREATE TABLE IF NOT EXISTS invitaciones (
     INDEX idx_inv_invitado (invitado_id, estado)
 ) ENGINE=InnoDB;
 
--- Relación tiquets ↔ grupos (muchos a muchos)
 CREATE TABLE IF NOT EXISTS tiquets_grupos (
     tiquet_id       INT UNSIGNED    NOT NULL,
     grupo_id        INT UNSIGNED    NOT NULL,

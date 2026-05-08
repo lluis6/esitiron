@@ -28,6 +28,8 @@ const promClient = require('prom-client');
 const app  = express();
 const PORT = process.env.PORT || 3000;
 
+app.set('trust proxy', 1);
+
 // ── Entorno ───────────────────────────────────────────────────
 // En producción se espera NODE_ENV=production (o trust proxy activo)
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
@@ -523,13 +525,15 @@ app.use(express.json());
 // ══════════════════════════════════════════════════════════════
 app.use(session({
   secret:            SESSION_SECRET,
-  resave:            false,
-  saveUninitialized: false,
+  resave:            true,              // Cambiado a true para forzar guardado
+  saveUninitialized: true,              // Cambiado a true para depurar
+  proxy:             true,              
+  name:              'esitiron_session', // Nombre personalizado para evitar conflictos
   cookie: {
     httpOnly: true,
-    sameSite: 'strict',
-    secure:   IS_PRODUCTION,          // true en prod (HTTPS), false en dev (HTTP)
-    maxAge:   7 * 24 * 60 * 60 * 1000, // 7 días
+    sameSite: 'lax',                    // Lax es vital para Tailscale Funnel
+    secure:   true,                     // Forzamos true porque Tailscale usa HTTPS
+    maxAge:   7 * 24 * 60 * 60 * 1000
   },
 }));
 

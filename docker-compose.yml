@@ -1,25 +1,27 @@
 services:
 
   tailscale:
-    image: tailscale/tailscale:latest
-    container_name: tailscale
-    environment:
-      - TS_AUTHKEY=${TAILSCALE_AUTHKEY}
-      - TS_HOSTNAME=${TS_HOSTNAME:-mi-app-tickets}
-      - TS_STATE_DIR=/var/lib/tailscale
-    volumes:
-      - tailscale_state:/var/lib/tailscale
-      - ./tailscale/entrypoint.sh:/entrypoint-funnel.sh:ro
-      - /dev/net/tun:/dev/net/tun
-    cap_add:
-      - NET_ADMIN
-    entrypoint: ["/bin/sh", "/entrypoint-funnel.sh"]
-    network_mode: "service:proxy"
-    depends_on:
-      proxy:
-        condition: service_started
-        restart: true
-    restart: unless-stopped
+      image: tailscale/tailscale:latest
+      container_name: tailscale
+      environment:
+        - TS_AUTHKEY=${TAILSCALE_AUTHKEY}
+        - TS_HOSTNAME=${TS_HOSTNAME:-mi-app-tickets}
+        - TS_STATE_DIR=/var/lib/tailscale
+      volumes:
+        - tailscale_state:/var/lib/tailscale
+        - ./tailscale/entrypoint.sh:/entrypoint-funnel.sh:ro
+        - /dev/net/tun:/dev/net/tun
+      cap_add:
+        - NET_ADMIN
+      entrypoint: ["/bin/sh", "/entrypoint-funnel.sh"]
+      networks:
+        - red_publica
+        - red_interna
+        - red_monitoring
+      depends_on:
+        - proxy
+        - proxysql
+      restart: unless-stopped
 
   cloudflared:
     image: cloudflare/cloudflared:latest
@@ -195,7 +197,6 @@ services:
       volumes:
         - proxysql_data:/var/lib/proxysql
         - ./proxysql.cnf:/etc/proxysql.cnf:ro
-        - ./monitoring/scripts/sql/failover.sh:/var/lib/proxysql/failover.sh:ro
         - ./.env:/app/.env:ro
       depends_on:
         db:
@@ -256,7 +257,7 @@ services:
     networks:
       - red_monitoring
     depends_on:
-      - socket-proxy # <-- Añadido para que arranque primero el proxy
+      - socket-proxy
     restart: unless-stopped
 
   mysql-exporter:

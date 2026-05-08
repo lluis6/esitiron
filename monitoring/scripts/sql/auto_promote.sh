@@ -1,8 +1,22 @@
 #!/bin/bash
 
-# Forzamos las variables por si el .env falla
+# --- CONFIGURACIÓN DE RUTAS ---
+DOCKER_DIR="/home/esitiron/docker_containers"
+ENV_FILE="$DOCKER_DIR/.env"
+
+# 1. Cargar variables desde el .env
+if [ -f "$ENV_FILE" ]; then
+    # Usamos export para que las variables estén disponibles en el script
+    export $(grep -v '^#' "$ENV_FILE" | xargs)
+else
+    echo "$(date): ERROR: No se encontró el archivo .env en $ENV_FILE"
+    exit 1
+fi
+
+# 2. Asignar variables del .env a nombres internos
+# Usamos DB_ROOT_PASSWORD que suele ser la de root en tus archivos
 USER="root"
-PASS="wdyb54" # Pon tu password real aquí directamente para asegurar
+PASS="${DB_ROOT_PASSWORD}" 
 MASTER_HOST="db_mysql"
 
 # Intentamos un ping al puerto 3306
