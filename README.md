@@ -1,263 +1,204 @@
-# Esitiron - Plataforma de Gestion de Tiquets con OCR, Curacion y Monitorizacion
+# Esitiron - Plataforma de gestion de tiquets con OCR y monitorizacion
 
-Proyecto dockerizado para:
-- Subir tiquets (imagen/PDF)
-- Extraer productos con OCR + IA (Gemini)
-- Editar y confirmar resultados antes de guardar
-- Curar productos contra un catalogo maestro
-- Comparar precios historicos por supermercado
-- Gestionar usuarios con 2FA
-- Monitorizar infraestructura y logs con Prometheus, Grafana, Loki y Promtail
+Stack dockerizado para subir tiquets (imagen/PDF), extraer productos con OCR + IA, validar resultados, y almacenar historicos con observabilidad completa.
 
-## 1. Vision General
+## Vision general
 
-La entrada publica pasa por Nginx y desde ahi se reenvia al servicio web. El backend web guarda datos en MySQL y llama al servicio OCR para procesar tiquets. A la vez, el stack de monitorizacion recoge metricas y logs internos.
+Flujo funcional:
+1. El usuario inicia sesion, sube un tiquet y lo revisa en la vista previa.
+2. La app envia el archivo al OCR y recibe supermercado, fecha, total y lineas.
+3. El usuario confirma, se persiste en MySQL y se alimenta el historico.
+4. El catalogo maestro y el diccionario mejoran la curacion con el tiempo.
 
-Flujo principal:
-1. Usuario inicia sesion o se registra.
-2. Sube un tiquet en la pantalla de dashboard.
-3. El servicio web envia el archivo al OCR en /analizar.
-4. OCR devuelve supermercado, fecha, total y lineas de producto.
-5. Usuario revisa/edita en preview y confirma.
-6. Se persiste en MySQL (tiquets, compras, historial_precios, etc.).
-7. En productos, el usuario puede vincular productos OCR a un maestro para mejorar la calidad global.
+Puntos de entrada:
+- Nginx hace de proxy inverso y aplica seguridad a rutas sensibles.
+- La app web consume OCR y MySQL a traves de ProxySQL.
+- El stack de monitorizacion captura metricas y logs internos.
 
-## 2. Componentes del Proyecto
+## Servicios y responsabilidades
 
-### Infraestructura y entrada
-- docker-compose.yml
-  - Orquesta toda la plataforma: app, OCR, DB, proxy, monitorizacion y conectividad externa.
-- nginx.conf
-  - Proxy inverso hacia web.
-  - Bloquea acceso directo a /avatars/.
-  - Sirve /avatar/:filename solo via backend autenticado.
-  - Expone un proxy CORS para OpenFoodFacts en /api/openfoodfacts/.
+Los servicios se orquestan en [docker-compose.yml](docker-compose.yml). Puertos expuestos al host:
 
-### Aplicacion web (Node.js + Express + Nunjucks)
-Carpeta: web/
+| Servicio | Contenedor | Puerto host -> contenedor | Rol |
+| --- | --- | --- | --- |
+| Nginx | nginx_proxy | 8080 -> 80 | Entrada HTTP y seguridad |
+| Grafana | grafana | 3001 -> 3000 | Dashboards y alertas |
+| ProxySQL | proxysql | 6032/6033 -> 6032/6033 | Enrutamiento MySQL |
 
-Archivos clave:
-- server.js
-  - Backend principal en produccion (el que ejecuta Dockerfile).
-  - Login/registro, sesiones, perfil, avatar, 2FA, carga de tiquets, preview, guardado, curacion, votaciones de barcode, endpoints API y /metrics.
-- package.json
-  - Scripts start/dev y dependencias.
-- views/
-  - Plantillas de interfaz (dashboard, login, perfil, preview, detalle, listados).
-- public/
-  - CSS, JS y recursos estaticos.
+Servicios internos clave:
+- web (Node.js): servidor principal, sesiones, 2FA, OCR, curacion y metricas.
+- ocr (FastAPI): endpoint /analizar, soporte imagen/PDF, Gemini con rotacion de claves.
+- db (MySQL master) y db_replica (MySQL read-only).
+- prometheus, loki, promtail y exporters (node, nginx, mysql, cadvisor).
+- socket-proxy: proxy seguro al socket de Docker para promtail/cAdvisor.
+- tailscale y cloudflared: exposicion externa controlada.
 
-Notas:
-- web/index.js parece una version anterior/no usada por docker-compose actual.
-- web/metrics.js existe, pero server.js ya publica /metrics directamente.
+Redes Docker:
+- red_publica: trafico de entrada (proxy, tailscale, cloudflared).
+- red_interna: base de datos y ProxySQL (internal).
+- red_procesamiento: web y ocr (internal).
+- red_ia: trafico del OCR.
+- red_monitoring: observabilidad.
 
-### OCR (Python + FastAPI + Gemini)
-Carpeta: ocr/
+## Seguridad y acceso
 
-Archivos clave:
-- main.py
-  - Endpoint POST /analizar.
-  - Soporta imagen y PDF (pdf2image).
-  - Usa google-genai con rotacion de claves CLAVE_1..CLAVE_10.
-  - Normaliza categorias y nombres, y conserva nombre_ocr para aprendizaje posterior.
-- requirements.txt
-  - FastAPI, OpenCV, Pillow, numpy, google-genai, etc.
+Reglas destacadas en [nginx.conf](nginx.conf):
+- Rate limiting en /login y /login/2fa.
+- /metrics y /avatars bloqueados desde fuera.
+- /avatar/ se sirve desde la app con cache segura.
+- Proxy CORS para OpenFoodFacts en /api/openfoodfacts/.
 
-### Base de datos
-- db_base/schema.sql
-  - Esquema inicial completo (usuarios, tiquets, compras, productos_maestros, historial, 2FA, diccionario, verificaciones).
-- migration_curacion.sql
-  - Migracion adicional de curacion y vista auxiliar.
+En la app ([web/server.js](web/server.js)):
+- Cookies seguras cuando NODE_ENV=production.
+- Cifrado AES-256-GCM para datos sensibles con SESSION_SECRET y AES_SALT.
+- Directorio de avatares configurable con AVATARS_DIR.
 
-### Monitorizacion
-Carpeta: monitoring/
-- prometheus/prometheus.yml
-  - Targets: prometheus, web (/metrics), node-exporter, cadvisor, mysql-exporter, nginx-exporter.
-- grafana/provisioning/datasources/prometheus.yml
-  - Datasources provisionadas: Prometheus y Loki.
-- loki/config.yml
-  - Almacenamiento local de logs.
-- promtail/config.yml
-  - Descubre contenedores Docker y envia logs a Loki.
+## Variables de entorno (.env)
 
-### Conectividad externa
-- tailscale/entrypoint.sh
-  - Levanta tailscaled y configura funnel/serve.
-- cloudflared (en compose)
-  - Ejecuta tunnel run con token.
-
-## 3. Servicios de Docker Compose
-
-Servicios principales:
-- proxy (Nginx): puerto 80 publicado al host.
-- web (Node.js): no publica puerto directamente al host (acceso via proxy).
-- ocr (FastAPI): interno.
-- db (MySQL 8): interno.
-- tailscale / cloudflared: conectividad externa.
-- prometheus / grafana / loki / promtail + exporters: observabilidad interna.
-
-Redes:
-- red_publica
-- red_interna (internal)
-- red_procesamiento (internal)
-- red_ia
-- red_monitoring
-
-## 4. Variables de Entorno Importantes
-
-En .env debes definir, al menos:
+El archivo [.env](.env) se usa por varios servicios. No lo subas al repo.
 
 Base de datos:
 - DB_ROOT_PASSWORD
-- DB_PASSWORD
-- DB_USER
 - DB_NAME
+- DB_USER
+- DB_PASSWORD
 
-OCR/Gemini:
-- CLAVE_1..CLAVE_10 (o CLAVE_API como fallback)
+ProxySQL:
+- DB_USER_PROXY
+- DB_PASSWORD_PROXY
+- PROXYSQL_ADMIN_USER
+- PROXYSQL_ADMIN_PASSWORD
+- PROXYSQL_ADMIN_RO_USER
+- PROXYSQL_ADMIN_RO_PASSWORD
+- PROXYSQL_MONITOR_USER
+- PROXYSQL_MONITOR_PASSWORD
 
-Seguridad y app:
-- SESSION_SECRET
-- NODE_ENV
+App web:
+- SESSION_SECRET (openssl rand -base64 64)
+- AES_SALT (openssl rand -hex 32)
+- NODE_ENV (production recomendado)
+- AVATARS_DIR (opcional)
 
-Conectividad:
-- TAILSCALE_AUTHKEY
-- TS_HOSTNAME
-- CLOUDFLARE_TUNNEL_TOKEN
+OCR (Gemini):
+- CLAVE_1..CLAVE_10 (rotacion)
+- CLAVE_API (fallback)
+
+OpenFoodFacts (opcional):
+- OFF_SEARCH_URL, OFF_SECONDARY_URL, OFF_FALLBACK_URL, OFF_TIMEOUT_MS
+- OPF_BASE_URL, OPF_LOOKUP_PATH, OPF_CREATE_PATH, OPF_IMAGE_PATH
+- OPF_TIMEOUT_MS, OPF_USER_ID, OPF_PASSWORD, OPF_USER_AGENT
+- OPENFACTS_API_KEY
 
 Monitorizacion:
 - GF_ADMIN_USER
 - GF_ADMIN_PASSWORD
-- METRICS_PORT
 
-Recomendado:
-- No subir .env al repositorio.
-- Rotar cualquier credencial que haya quedado expuesta.
+Conectividad externa:
+- TAILSCALE_AUTHKEY
+- TS_HOSTNAME
+- CLOUDFLARE_TUNNEL_TOKEN
 
-## 5. Comandos Basicos de Uso
+## Operacion diaria
 
-## Requisitos
-- Docker
-- Docker Compose (plugin docker compose)
+Requisitos:
+- Docker + Docker Compose
 
-## Arranque inicial
+Arranque inicial:
 ~~~bash
-cd /home/lluis/esitiron/docker_cont_new
+cd /home/esitiron/docker_containers
 docker compose up -d --build
 ~~~
 
-## Ver estado
+Estado y logs:
 ~~~bash
 docker compose ps
-~~~
-
-## Ver logs
-~~~bash
-# Todos
 docker compose logs -f
-
-# Solo aplicacion web
 docker compose logs -f web
-
-# Solo OCR
 docker compose logs -f ocr
-
-# Solo proxy
 docker compose logs -f proxy
 ~~~
 
-## Reiniciar un servicio
+Reinicios y apagado:
 ~~~bash
 docker compose restart web
-~~~
-
-## Parar y arrancar sin reconstruir
-~~~bash
 docker compose stop
 docker compose start
-~~~
-
-## Apagar todo
-~~~bash
 docker compose down
+docker compose down -v  # destructivo
 ~~~
 
-## Apagar y borrar tambien volumenes (destructivo)
+Salud rapida:
 ~~~bash
-docker compose down -v
+curl -s http://localhost:8080/health
+docker compose exec prometheus wget -qO- http://localhost:9090/-/healthy
+docker compose exec grafana wget -qO- http://localhost:3000/api/health
 ~~~
 
-## Aplicar migracion manual (si necesitas migration_curacion.sql)
-~~~bash
-cd /home/lluis/esitiron/docker_cont_new
-docker compose exec -T db sh -lc 'mysql -u root -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' < migration_curacion.sql
-~~~
+## Datos y replicacion
 
-## Entrar a MySQL
+Esquema base en [db_base/schema.sql](db_base/schema.sql). La app aplica pequenas migraciones en arranque.
+
+Replica y failover:
+- db_replica ejecuta [monitoring/scripts/sql/auto_promote.sh](monitoring/scripts/sql/auto_promote.sh) para promocion automatica si cae el master.
+- ProxySQL decide lecturas/escrituras segun [proxysql.cnf](proxysql.cnf).
+
+Acceso SQL manual:
 ~~~bash
 docker compose exec db sh -lc 'mysql -u root -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"'
 ~~~
 
-## Comprobaciones rapidas
+Migraciones manuales (si aplica):
 ~~~bash
-# Salud de la app (via Nginx)
-curl -s http://localhost/health
-
-# Salud de Prometheus (interno desde su contenedor)
-docker compose exec prometheus wget -qO- http://localhost:9090/-/healthy
-
-# Salud de Grafana (interno desde su contenedor)
-docker compose exec grafana wget -qO- http://localhost:3000/api/health
+docker compose exec -T db sh -lc 'mysql -u root -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' < migration_curacion.sql
 ~~~
 
-## 6. Uso Funcional Basico de la App
+## Backups y mantenimiento
 
-1. Abrir en navegador: http://localhost
-2. Registrar usuario (o iniciar sesion).
-3. Subir un tiquet (JPG/PNG/WEBP/GIF/PDF).
-4. Revisar en preview y editar lineas si hace falta.
-5. Confirmar para guardar.
-6. Consultar:
-   - Dashboard: resumen y KPIs.
-   - Tiquets: historico completo y detalle.
-   - Productos: filtros, vinculacion de maestros, comparativa de precios, votaciones de barcode.
-7. En Perfil: actualizar datos, avatar y activar/desactivar 2FA.
+Backup automatizado:
+- Script en [monitoring/scripts/backup/backup_esitiron.sh](monitoring/scripts/backup/backup_esitiron.sh).
+- Requiere el disco externo montado en /home/esitiron/external_disk.
+- Guarda copias en /home/esitiron/external_disk/copias/ y rota > 30 dias.
 
-## 7. Endpoints Relevantes
+Control de CPU OCR:
+- Script en [monitoring/scripts/cpu/cpu_watchdog.sh](monitoring/scripts/cpu/cpu_watchdog.sh).
+- Limita CPU del contenedor ocr_ia cuando hay picos.
 
-Publicos (via proxy):
-- GET /health
-- GET /login
-- POST /login
-- GET /dashboard (requiere sesion)
-- POST /subir_tiquet (requiere sesion)
-- GET /preview (requiere sesion)
-- POST /confirmar (requiere sesion)
-- GET /productos (requiere sesion)
-- GET /metrics
+## Observabilidad
 
-APIs internas de la app (requieren sesion):
-- GET /api/proxy/off?q=...
-- GET /api/maestros/buscar?q=...
-- POST /api/compras/vincular
-- POST /api/verificaciones/votar
-- POST /api/compra/:idCompra/precio
-- GET /api/producto/:id/precios
+Prometheus scrapea web, mysql-exporter, nginx-exporter, node-exporter y cadvisor. Config en [monitoring/prometheus/prometheus.yml](monitoring/prometheus/prometheus.yml).
 
-Proxy OpenFoodFacts (Nginx):
-- /api/openfoodfacts/...
+Grafana provisiona datasources en [monitoring/grafana/provisioning/datasources/prometheus.yml](monitoring/grafana/provisioning/datasources/prometheus.yml).
 
-## 8. Estructura Resumida
+Loki/Promtail gestionan logs en [monitoring/loki/config.yml](monitoring/loki/config.yml) y [monitoring/promtail/config.yml](monitoring/promtail/config.yml).
+
+## Conectividad externa
+
+Tailscale se configura en [tailscale/entrypoint.sh](tailscale/entrypoint.sh):
+- Funnel publica la app.
+- Serve expone Grafana de forma privada.
+
+Cloudflared usa CLOUDFLARE_TUNNEL_TOKEN para el tunnel.
+
+## Estructura rapida
 
 ~~~text
 .
 |- docker-compose.yml
 |- nginx.conf
-|- migration_curacion.sql
+|- proxysql.cnf
 |- db_base/
 |  |- schema.sql
 |- ocr/
 |  |- main.py
+|- web/
+|  |- server.js
+|- monitoring/
+|  |- prometheus/
+|  |- grafana/
+|  |- loki/
+|  |- promtail/
+|  |- scripts/
+|- tailscale/
 |  |- requirements.txt
 |  |- Dockerfile
 |- web/
