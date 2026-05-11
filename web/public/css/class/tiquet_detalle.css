@@ -145,6 +145,23 @@ body.edit-precios .edit-hint { display: inline; }
   background-color: rgba(0,0,0,0.05) !important;
 }
 
+/* ── Foto producto ─────────────────────────────────────────── */
+.product-photo {
+  width: 52px;
+  text-align: center;
+  color: var(--text3);
+}
+.product-thumb {
+  width: 34px;
+  height: 34px;
+  display: inline-block;
+  object-fit: contain;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: #fff;
+}
+html.dark .product-thumb { background: var(--surface); }
+
 /* ── Wrap precio-editable ────────────────────────────────────── */
 .precio-edit-wrap {
   display: flex; align-items: center; gap: 4px;

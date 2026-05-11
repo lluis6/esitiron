@@ -133,6 +133,7 @@
         <thead>
           <tr>
             <th>Cant.</th>
+            <th>Foto</th>
             <th>Producto</th>
             <th>Categoría</th>
             <th class="right">Precio unit.</th>
@@ -163,6 +164,16 @@
                      value="{{ p.cantidad }}"
                      step="{{ '0.001' if p.categoria == 'Fruta/Verdura' else '1' }}"
                      oninput="recalcularDetalle()">
+            </td>
+
+            <!-- Foto -->
+            <td class="product-photo">
+              {% if p.foto_url and not p.es_descuento %}
+                <img src="{{ p.foto_url }}" alt="" loading="lazy" class="product-thumb"
+                     onerror="this.closest('td').textContent='-';">
+              {% else %}
+                -
+              {% endif %}
             </td>
 
             <!-- Producto -->
@@ -285,9 +296,9 @@
 const TIQUET_ID = '{{ tiquet.uuid }}';
 const filas = document.querySelectorAll('#tbodyProductos tr');
 
-// Número de columnas visibles sin edición: Cant + Producto + Categoría + Precio = 4
-// Con edición añadimos Acción = 5
-const COLS_BASE = 4;
+// Numero de columnas visibles sin edicion: Cant + Foto + Producto + Categoria + Precio = 5
+// Con edicion anadimos Accion = 6
+const COLS_BASE = 5;
 
 function esFilaPeso(fila) {
   return fila?.dataset?.esPeso === '1';

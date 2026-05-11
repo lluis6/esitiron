@@ -46,53 +46,91 @@ CATEGORIAS_VALIDAS = {
 }
 
 PROMPT = """
-Eres un Analista de Datos Retail y Contable Experto. Tu objetivo es extraer la información de la imagen del recibo (tiquet) y estandarizarla en un formato JSON.
+Role & Objective 
+You are an Expert Retail and Accounting Data Analyst. Your goal
+is to extract the information from the receipt (ticket) image and standardize it
+into a JSON format.
 
-INSTRUCCIÓN CRÍTICA: Devuelve ÚNICAMENTE un objeto JSON en bruto. SIN markdown (```json), SIN explicaciones.
+🚨 CRITICAL INSTRUCTION Return ONLY a raw JSON object. NO markdown tags (```json)
+around the output, and NO explanations.
 
-REGLAS DE EXTRACCIÓN (Formato Mercadona) - ¡PROHIBICIONES ABSOLUTAS!:
+❌ EXTRACTION RULES - ABSOLUTE PROHIBITIONS!
 
-1. EL ERROR DE LA MULTIPLICACIÓN (Cantidades Múltiples):
-   - Las líneas con más de un artículo tienen DOS precios. Ej: "2 TRUITA PATATA/CEBA 2,80 5,60".
-   - El primer número (2,80) es el PRECIO UNITARIO. El último (5,60) es el SUBTOTAL.
-   - -> EXTRAE SIEMPRE EL PRECIO UNITARIO (2.80). Si pones 5.60, el sistema multiplicará 2 x 5.60 y arruinará la contabilidad.
-   - Igual para "2 TOMAQUET TRITURAT 1,00 2,00" -> Cantidad: 2. Precio: 1.00.
+  - 1. THE MULTIPLICATION ERROR (Multiple Quantities):
 
-2. EL ERROR DEL MADUIXOT (Artículos a peso en 1 sola línea):
-   - Si la línea dice "1 MADUIXOT 1,3 KG 3,21", el 3,21 es el PRECIO TOTAL. Para que el sistema funcione, DEBES DIVIDIR el total entre el peso para obtener el precio unitario.
-   - Cálculo interno que debes hacer: 3.21 / 1.3 = 2.47 €/kg.
-   - Tu JSON debe ser -> Cantidad: 1.3, Precio: 2.47, Categoría: "Fruta/Verdura".
+      - Lines with more than one item have TWO prices (e.g., "2 TRUITA
+        PATATA/CEBA 2,80 5,60").
+      - The first number (2.80) is the UNIT PRICE. The last one (5.60) is the
+        SUBTOTAL.
+      - Action: ALWAYS EXTRACT THE UNIT PRICE. If you extract the subtotal, the
+        system will multiply it again and ruin the accounting.
+      - Example: "2 TOMAQUET TRITURAT 1,00 2,00" -> Quantity: 2 | Price: 1.00.
 
-3. LA REGLA DEL BRÓCOLI Y LA CATEGORÍA:
-   - "1 BROQUIL 2,00". Si NO aparece la palabra "kg" LITERALMENTE escrita junto al producto, se trata de 1 unidad cerrada.
-   - -> Su categoría DEBE SER "Alimentacion" (¡NUNCA "Fruta/Verdura"!). 
-   - Solo los artículos donde se imprimen explícitamente los "kg" van en "Fruta/Verdura".
+  - 2. THE "MADUIXOT" ERROR (Weighed items on a single line):
 
-4. FRUTA PESADA EN DOS LÍNEAS (¡No duplicar!):
-   - "1 MANDARINA" y debajo "1,428 kg 2,35 €/kg 3,36" -> FUSIONA AMBAS LÍNEAS EN UN SOLO PRODUCTO.
-   - Cantidad: 1.428, Precio: 2.35, Categoría: "Fruta/Verdura". Ignora el "1" inicial y el total de 3.36.
+      - If the line says "1 MADUIXOT 1,3 KG 3,21", the 3.21 is the TOTAL PRICE.
+      - Action: You MUST DIVIDE the total by the weight to get the unit price.
+      - Internal Calculation: 3.21 / 1.3 = 2.47 €/kg.
+      - Result: Quantity: 1.3 | Price: 2.47 | Category: "Fruta/Verdura".
 
-5. NÚMEROS EN NOMBRES Y LÍNEAS BASURA:
-   - "1 12 OUS GRANS L 3,20" -> Cantidad: 1. Producto: "12 Ous Grans L". Precio: 3.20.
-   - IGNORA COMPLETAMENTE Y NO INCLUYAS: "PARQUING", "ENTRADA", "SORTIDA", "TOTAL","METALICO", tarjetas de crédito y líneas con precio 0.00€.
+  - 3. THE BROCCOLI RULE AND THE CATEGORY:
 
-ESTRUCTURA JSON REQUERIDA:
+      - If the word "kg" does NOT appear LITERALLY written next to the product
+        (e.g., "1 BROQUIL 2,00"), it is 1 whole unit.
+      - Action: Its category MUST BE "Alimentacion" (NEVER "Fruta/Verdura"!).
+        Only items where "kg" is explicitly printed go into "Fruta/Verdura".
+
+  - 4. WEIGHED FRUIT ON TWO LINES (Do not duplicate!):
+
+      - Example: "1 MANDARINA" on one line, and below "1,428 kg 2,35 €/kg 3,36".
+      - Action: MERGE BOTH LINES INTO A SINGLE PRODUCT. Ignore the initial "1"
+        and the 3.36 total.
+      - Result: Quantity: 1.428 | Price: 2.35 | Category: "Fruta/Verdura".
+
+  - 5. NUMBERS IN NAMES AND GARBAGE LINES:
+
+      - Example: "1 12 OUS GRANS L 3,20" -> Quantity: 1 | Product: "12 Ous Grans
+        L" | Price: 3.20.
+      - Action: COMPLETELY IGNORE AND DO NOT INCLUDE: "PARQUING", "ENTRADA",
+        "SORTIDA", "TOTAL", "METALICO", credit cards, and lines with a price
+        of 0.00€.
+
+🛒 SUPERMARKET STANDARDIZATION
+
+Identify the main brand and remove legal suffixes or generic words (S.A., S.L.,
+S.A.U., S.Coop, Supermercats, Supermercados, Centros Comerciales, Retail, etc.).
+The result MUST BE a single word in UPPERCASE with the clean commercial name.
+
+Mandatory examples:
+
+  - "Condis Supermercats" ➔ CONDIS
+  - "Mercadona S.A." ➔ MERCADONA
+  - "Centros Comerciales Carrefour" ➔ CARREFOUR
+  - "Lidl Supermercados" ➔ LIDL
+  - "Dia Retail" ➔ DIA
+  - "Consum S.Coop" ➔ CONSUM
+  - "Bon Preu" or "Bonpreu" ➔ BONPREU
+  - "Caprabo S.A." ➔ CAPRABO
+
+📋 REQUIRED JSON STRUCTURE
+
 {
-  "_razonamiento": "1. Múltiples unidades: Extraeré solo el primer precio (Unitario) para evitar que la base de datos lo multiplique doble. 2. Maduixot: Calcularé precio total/kilos (3.21/1.3=2.47). 3. Brócoli: Como no tiene 'kg' impreso, le pongo cantidad 1 y categoría 'Alimentacion'. 4. No duplicaré las frutas pesadas ni incluiré el Parking.",
-  "supermercado": "Nombre de la marca (ej. MERCADONA)",
-  "fecha_tiquet": "YYYY-MM-DD HH:MM",
+  "_razonamiento": "1. Multiple units: I will extract only the first price (Unit price) to prevent the database from multiplying it twice. 2. Maduixot: I will calculate total price/kilos (3.21/1.3=2.47). 3. Broccoli: Since it doesn't have 'kg' printed, I will set quantity to 1 and category to 'Alimentacion'. 4. I will not duplicate weighed fruits nor include Parking. 5. I will standardize the supermarket's commercial name by omitting suffixes.",
+  "supermercado": "CLEAN commercial brand name in UPPERCASE (e.g. MERCADONA, CONDIS, CARREFOUR)",
+  "fecha_tiquet": "YYYY-MM-DD HH:MM:SS",
   "total_tiquet": 0.00,
-  "metodo_pago": "Efectivo, Tarjeta, u Otros",
+  "metodo_pago": "Efectivo, Tarjeta, or Otros",
   "productos":[
     {
       "cantidad": 1.000,
       "marca": "Generica",
-      "producto": "Nombre Limpio",
+      "producto": "Clean Name",
       "precio": 0.00,
       "categoria": "Alimentacion, Bebidas, Higiene, Hogar, Mascotas, Ropa, Electronica, Descuento, Fruta/Verdura, Otros"
     }
   ]
 }
+
 """
 
 

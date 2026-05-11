@@ -1,0 +1,33 @@
+docker exec -it db_mysql mysql -u root -p
+use tiquets_db;
+
+# HACER A UN USUARIO ADMIN
+UPDATE usuarios 
+SET es_admin = 1 
+WHERE username = 'nombre_usuario';
+
+# ELIMINAR A UN USUARIO
+DELETE FROM usuarios 
+WHERE username = 'nombre_usuario';
+
+#CAMBIAR UNA CONTRASEÑA A USUARIO (USANDO PASSWORDHASH O BCRYPT)
+UPDATE usuarios 
+SET password_hash = 'AQUÍ_EL_NUEVO_HASH_GENERADO' 
+WHERE username = 'nombre_usuario';
+
+# ELIMINAR TOTP DE UN USUARIO
+UPDATE usuarios 
+SET totp_enabled = 0, 
+    totp_secret = NULL 
+WHERE username = 'nombre_usuario';
+DELETE FROM codigos_recuperacion 
+WHERE id_usuario = (SELECT id FROM usuarios WHERE username = 'nombre_usuario');
+
+# ELIMINAR GRUPO
+por nombre del grupo
+DELETE FROM grupos 
+WHERE nombre = 'Nombre Del Grupo';
+
+por id de grupo
+DELETE FROM grupos 
+WHERE id = 5;

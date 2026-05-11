@@ -62,9 +62,40 @@ promClient.collectDefaultMetrics({ register });
 
 const ticketsSubidosCounter = new promClient.Counter({
   name: 'tickets_subidos_total',
-  help: 'Número total de tiquets guardados y confirmados por los usuarios'
+  help: 'Número total de tiquets guardados desde el último reinicio'
 });
 register.registerMetric(ticketsSubidosCounter);
+
+const ticketsTotalesGauge = new promClient.Gauge({
+  name: 'tickets_total_historico',
+  help: 'Total histórico de tiquets en base de datos',
+  async collect() {
+    try {
+      const [[row]] = await dbPool.execute('SELECT COUNT(*) AS n FROM tiquets');
+      this.set(Number(row.n));  // ← forzar Number por si llega string
+    } catch (e) {
+      console.error('[Prometheus] Error en gauge tickets_total_historico:', e.message);
+      // NO hacer this.set(0) — dejar el valor anterior si falla
+    }
+  }
+});
+register.registerMetric(ticketsTotalesGauge);
+
+const ticketsHoyGauge = new promClient.Gauge({
+  name: 'tickets_subidos_hoy',
+  help: 'Tiquets subidos en las últimas 24 horas',
+  async collect() {
+    try {
+      const [[row]] = await dbPool.execute(
+        `SELECT COUNT(*) AS n FROM tiquets WHERE fecha_compra >= NOW() - INTERVAL 24 HOUR`
+      );
+      this.set(Number(row.n));
+    } catch (e) {
+      console.error('[Prometheus] Error en gauge tickets_subidos_hoy:', e.message);
+    }
+  }
+});
+register.registerMetric(ticketsHoyGauge);
 
 // ── Cifrado AES-256-GCM ───────────────────────────────────────
 const REQUIRED_ENV = ['SESSION_SECRET', 'AES_SALT'];
@@ -340,16 +371,6 @@ async function initDB() {
   `).catch(() => {});
 
   console.log('[DB] Todas las tablas listas');
-
-  try {
-    const [[result]] = await dbPool.execute('SELECT COUNT(id) AS total FROM tiquets');
-    if (result && result.total > 0) {
-      ticketsSubidosCounter.inc(result.total);
-      console.log(`[Métricas] Sincronizados ${result.total} tiquets históricos a Prometheus.`);
-    }
-  } catch (e) {
-    console.error('[Métricas] Error contando tiquets iniciales:', e);
-  }
 }
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -412,7 +433,7 @@ async function verificarConsenso(conn, idVerificacion) {
 // ── Multer ────────────────────────────────────────────────────
 const uploadTiquet = multer({
   storage: multer.memoryStorage(),
-  limits:  { fileSize: 15 * 1024 * 1024 },
+  limits:  { fileSize: 15 * 1024 * 1024 }, //limit de 15mb
   fileFilter: (_req, file, cb) => {
     // Normalizar variantes de MIME que mandan algunos móviles
     const mime = (file.mimetype || '').toLowerCase().trim();
@@ -518,8 +539,6 @@ app.use(express.json());
 // • secure: true   → la cookie SOLO se envía por HTTPS.
 //                    En desarrollo (NODE_ENV != production) se
 //                    desactiva para poder usar HTTP en localhost.
-// • sameSite: 'strict' → bloquea el envío de la cookie en
-//                    peticiones cross-site (protección CSRF).
 // • httpOnly: true → JavaScript del cliente no puede leer la
 //                    cookie (protección XSS).
 // ══════════════════════════════════════════════════════════════
@@ -573,12 +592,20 @@ app.get('/debug-charset', async (req, res) => {
   res.json({ vars, names, row });
 });
 
-app.get('/metrics', async (req, res) => {
-  try {
-    res.set('Content-Type', register.contentType);
-    res.end(await register.metrics());
-  } catch (ex) {
-    res.status(500).end(ex);
+const http = require('http');
+
+const metricsServer = http.createServer(async (req, res) => {
+  if (req.url === '/metrics') {
+    try {
+      res.setHeader('Content-Type', register.contentType);
+      res.end(await register.metrics());
+    } catch (ex) {
+      res.statusCode = 500;
+      res.end(String(ex));
+    }
+  } else {
+    res.statusCode = 404;
+    res.end();
   }
 });
 
@@ -735,7 +762,7 @@ async function getNumTiquet(id, uid) {
 
 async function getProductosTiquet(idTiquet, uid) {
   const [r] = await dbPool.execute(`
-    SELECT pm.nombre AS producto, pm.categoria,
+    SELECT pm.nombre AS producto, pm.categoria, pm.foto_url,
            pm.id AS id_producto,
            c.id AS id_compra, c.cantidad,
            c.precio_unitario AS precio, c.es_descuento
@@ -1027,7 +1054,7 @@ app.post('/confirmar', auth, async (req, res) => {
       }));
     }
     await guardarTiquet(req.session.usuario.id, formDatos);
-    ticketsSubidosCounter.inc();
+    ticketsSubidosCounter.inc(); // ← esta línea falta en tu código actual
     res.redirect('/dashboard?success=Tiquet+guardado+y+editado+con+éxito');
   } catch (e) {
     console.error('[Confirmar]', e.message);
@@ -1954,6 +1981,10 @@ app.use((req, res) => {
 
 // ── Arranque ──────────────────────────────────────────────────
 initDB().then(() => {
+  metricsServer.listen(9091, '0.0.0.0', () => {
+    console.log('[Metrics] puerto 9091 solo accesible internamente');
+  });
+
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`[Esítiron] port ${PORT} | producción=${IS_PRODUCTION} | cookies secure=${IS_PRODUCTION}`);
   });

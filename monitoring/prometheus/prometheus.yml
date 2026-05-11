@@ -14,7 +14,7 @@ scrape_configs:
   # ── 2. App Node.js (prom-client en puerto 9090 interno) ─────
   - job_name: 'esitiron_web'
     static_configs:
-      - targets: ['web:3000']
+      - targets: ['web:9091']
     metrics_path: /metrics
 
   # ── 3. Sistema Host — CPU, RAM, Disco, Red ──────────────────

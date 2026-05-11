@@ -246,8 +246,10 @@ services:
     image: gcr.io/cadvisor/cadvisor:latest
     container_name: cadvisor
     command:
-      - '--docker=tcp://socket-proxy:2375' # Usa el proxy en lugar del socket físico
+      - '--containerd=/run/containerd/containerd.sock'
+      - '--containerd-namespace=moby'
       - '--docker_only=true'
+      - '--store_container_labels=true'
     volumes:
       - /:/rootfs:ro
       - /dev/disk/:/dev/disk:ro
@@ -256,8 +258,6 @@ services:
       - ${XDG_RUNTIME_DIR}/docker/containerd/containerd.sock:/run/containerd/containerd.sock:ro
     networks:
       - red_monitoring
-    depends_on:
-      - socket-proxy
     restart: unless-stopped
 
   mysql-exporter:

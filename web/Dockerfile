@@ -1,11 +1,18 @@
-FROM node:20-alpine
-
+FROM node:20-bookworm-slim
 ENV LANG=C.UTF-8
-
 WORKDIR /app
+
+# Dependencias nativas para sharp/libvips
+RUN apt-get update && apt-get install -y \
+    libvips-dev \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN chown -R node:node /app
-COPY package*.json ./
+USER node
+
+COPY --chown=node:node package*.json ./
 RUN npm install
-RUN npm install prom-client
-COPY . .
+
+COPY --chown=node:node . .
+
 CMD ["node", "server.js"]
