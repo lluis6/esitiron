@@ -3,3 +3,4 @@
 *.log*
 *.bak
 quehay*
+.gitignore
