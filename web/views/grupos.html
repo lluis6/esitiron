@@ -292,9 +292,17 @@ async function abrirGrupo(id, nombre) {
 
     // ── Miembros ──────────────────────────────────────────────
     html += `<div class="pl-section-title">👤 Miembros</div>`;
-    grupo.miembros.forEach(m => {
+    const miembros = Array.isArray(grupo.miembros) ? grupo.miembros : [];
+    const visibles = miembros.slice(0, 3);
+    const extra = miembros.slice(3);
+
+    visibles.forEach(m => {
+      const avatarUrl = avatarUrlFromPath(m.avatar);
+      const avatarHtml = avatarUrl
+        ? `<img src="${avatarUrl}" class="miembro-avatar-img" alt="${escHtml(m.username)}">`
+        : `${m.username[0].toUpperCase()}`;
       html += `<div class="miembro-item">
-        <div class="miembro-avatar">${m.username[0].toUpperCase()}</div>
+        <div class="miembro-avatar">${avatarHtml}</div>
         <div class="miembro-name">${escHtml(m.username)}</div>
         <span class="rol-badge ${m.rol}">${m.rol}</span>
         ${m.id !== grupo.creador_id && miRolActual === 'admin'
@@ -302,6 +310,57 @@ async function abrirGrupo(id, nombre) {
           : ''}
       </div>`;
     });
+
+    if (extra.length) {
+      html += `<div class="miembros-extra" id="miembrosExtra">`;
+      extra.forEach(m => {
+        const avatarUrl = avatarUrlFromPath(m.avatar);
+        const avatarHtml = avatarUrl
+          ? `<img src="${avatarUrl}" class="miembro-avatar-img" alt="${escHtml(m.username)}">`
+          : `${m.username[0].toUpperCase()}`;
+        html += `<div class="miembro-item">
+          <div class="miembro-avatar">${avatarHtml}</div>
+          <div class="miembro-name">${escHtml(m.username)}</div>
+          <span class="rol-badge ${m.rol}">${m.rol}</span>
+          ${m.id !== grupo.creador_id && miRolActual === 'admin'
+            ? `<button onclick="expulsarMiembro(${id}, ${m.id})" style="margin-left:0.5rem;padding:3px 8px;font-size:0.72rem;border:1px solid var(--border);border-radius:var(--radius-xs);background:transparent;color:var(--text3);cursor:pointer;" title="Expulsar">✕</button>`
+            : ''}
+        </div>`;
+      });
+      html += `</div>
+        <button type="button" class="miembros-toggle" id="miembrosToggle" data-open="0" data-count="${extra.length}">Ver ${extra.length} más</button>`;
+    }
+
+    // ── Control de gastos ─────────────────────────────────────
+    html += `<div class="pl-section-title" style="margin-top:1.25rem;">💸 Control de gastos</div>
+      <div class="gastos-grid">
+        <div class="gasto-card">
+          <div class="gasto-label">Gasto que he hecho</div>
+          <div class="gasto-amount" id="gastoHecho">0.00 €</div>
+          <div class="gasto-sub">Basado en tus tiquets compartidos</div>
+        </div>
+        <div class="gasto-card gasto-click" id="gastoDeboCard">
+          <div class="gasto-label">Dinero que debo</div>
+          <div class="gasto-amount" id="gastoDebo">0.00 €</div>
+          <div class="gasto-sub">Si sale negativo, estas a favor</div>
+          <div class="gasto-dropdown" id="gastoDeboDrop">
+            <div class="gasto-drop-header">
+              <span id="gastoDeboResumen">Integrantes: 0</span>
+              <span id="gastoDeboTotal">0.00 €</span>
+            </div>
+            <div class="gasto-list" id="gastoDeboList"></div>
+          </div>
+        </div>
+        <div class="gasto-card gasto-pago">
+          <div class="gasto-label">He pagado a alguien</div>
+          <form id="gastoPagoForm" class="gasto-form">
+            <select id="gastoPagoUser" class="gasto-select"></select>
+            <input id="gastoPagoAmount" class="gasto-input" type="number" min="0" step="0.01" placeholder="0.00">
+            <button class="gasto-btn" type="submit">Añadir</button>
+          </form>
+          <div class="gasto-sub" id="gastoPagoHint"></div>
+        </div>
+      </div>`;
 
     // ── Invitar ───────────────────────────────────────────────
     html += `<div class="invite-wrap">
@@ -322,7 +381,7 @@ async function abrirGrupo(id, nombre) {
         const fecha = new Date(t.fecha_compra).toLocaleDateString('es-ES');
         const puedeEliminar = (miRolActual === 'admin') || (Number(t.propietario_id) === Number(MI_USUARIO_ID));
         html += `<div class="tiquet-panel-row">
-          <a href="/tiquet/${t.uuid}" class="tiquet-panel-item">
+          <a href="/tiquet/${t.uuid}?from_grupo=${id}" class="tiquet-panel-item">
             <div style="flex:1;">
               <div style="font-weight:600;font-size:0.875rem;">${escHtml(t.supermercado)}</div>
               <div class="tiquet-by">por ${escHtml(t.propietario)} · ${fecha}</div>
@@ -363,6 +422,8 @@ async function abrirGrupo(id, nombre) {
     }
 
     document.getElementById('plBody').innerHTML = html;
+    setupMiembrosUI();
+    setupGastosUI(grupo, tiquets);
     // Ya existe oninput en el HTML del input; evitar listener duplicado.
   } catch (e) {
     document.getElementById('plBody').innerHTML =
@@ -541,6 +602,190 @@ async function eliminarTiquetGrupo(tiquetUuid, supermercado) {
   }
 }
 
+function setupMiembrosUI() {
+  const btn = document.getElementById('miembrosToggle');
+  const extra = document.getElementById('miembrosExtra');
+  if (!btn || !extra) return;
+
+  btn.addEventListener('click', () => {
+    const isOpen = btn.getAttribute('data-open') === '1';
+    const count = btn.getAttribute('data-count') || '0';
+    btn.setAttribute('data-open', isOpen ? '0' : '1');
+    extra.classList.toggle('open', !isOpen);
+    btn.textContent = isOpen ? `Ver ${count} más` : 'Menos';
+  });
+}
+
+// ── Control de gastos ────────────────────────────────────────
+let pagosActuales = [];
+
+function formatEur(amount) {
+  const value = Number.isFinite(amount) ? amount : 0;
+  return `${value.toFixed(2)} €`;
+}
+
+function parseAmount(raw) {
+  const val = Number(String(raw || '').replace(',', '.'));
+  return Number.isFinite(val) ? val : 0;
+}
+
+async function fetchPagosGrupo(grupoId) {
+  if (!grupoId) return [];
+  try {
+    const res = await fetch(`/api/grupos/${grupoId}/pagos`);
+    const data = await res.json().catch(() => ([]));
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return [];
+  }
+}
+
+function calcularDeudas(grupo, tiquets) {
+  const miembros = Array.isArray(grupo.miembros) ? grupo.miembros : [];
+  const totalMiembros = miembros.length || 1;
+  const totalPorPropietario = {};
+  let miGasto = 0;
+
+  (tiquets || []).forEach(t => {
+    const total = parseAmount(t.total_tiquet);
+    if (!total) return;
+    const propietarioId = Number(t.propietario_id) || 0;
+    totalPorPropietario[propietarioId] = (totalPorPropietario[propietarioId] || 0) + total;
+    if (propietarioId === Number(MI_USUARIO_ID)) miGasto += total;
+  });
+
+  return { miGasto, totalPorPropietario, miembros, totalMiembros };
+}
+
+function renderGastosUI(grupo, tiquets, pagos) {
+  const gastoHechoEl = document.getElementById('gastoHecho');
+  const gastoDeboEl = document.getElementById('gastoDebo');
+  const gastoDeboList = document.getElementById('gastoDeboList');
+  const gastoDeboResumen = document.getElementById('gastoDeboResumen');
+  const gastoDeboTotal = document.getElementById('gastoDeboTotal');
+  const pagoHint = document.getElementById('gastoPagoHint');
+
+  if (!gastoHechoEl || !gastoDeboEl || !gastoDeboList) return;
+
+  const { miGasto, totalPorPropietario, miembros, totalMiembros } = calcularDeudas(grupo, tiquets);
+  const pagosList = Array.isArray(pagos) ? pagos : [];
+  const pagosFromMe = {};
+  const pagosToMe = {};
+  let totalPagos = 0;
+
+  pagosList.forEach(p => {
+    const fromId = Number(p.from_user_id || p.fromUserId);
+    const toId = Number(p.to_user_id || p.toUserId);
+    const amt = parseAmount(p.cantidad || p.amount);
+    if (!fromId || !toId || !amt) return;
+    if (fromId === Number(MI_USUARIO_ID)) {
+      pagosFromMe[toId] = (pagosFromMe[toId] || 0) + amt;
+      totalPagos += amt;
+    }
+    if (toId === Number(MI_USUARIO_ID)) {
+      pagosToMe[fromId] = (pagosToMe[fromId] || 0) + amt;
+    }
+  });
+
+  gastoHechoEl.textContent = formatEur(miGasto);
+
+  const otrosMiembros = miembros.filter(m => Number(m.id) !== Number(MI_USUARIO_ID));
+  let totalDeuda = 0;
+  const rows = otrosMiembros.map(m => {
+    const totalOtro = totalPorPropietario[m.id] || 0;
+    const totalMio = totalPorPropietario[Number(MI_USUARIO_ID)] || 0;
+    const base = (totalOtro / totalMiembros) - (totalMio / totalMiembros);
+    const pagosOut = pagosFromMe[m.id] || 0;
+    const pagosIn = pagosToMe[m.id] || 0;
+    const neto = base - pagosOut + pagosIn;
+    totalDeuda += neto;
+    return `
+      <div class="gasto-list-item ${neto < 0 ? 'neg' : ''}">
+        <strong>${escHtml(m.username)}</strong>
+        <span>${formatEur(neto)}</span>
+      </div>`;
+  });
+
+  gastoDeboEl.textContent = formatEur(totalDeuda);
+  gastoDeboEl.classList.toggle('neg', totalDeuda < 0);
+  if (gastoDeboResumen) {
+    gastoDeboResumen.textContent = `Integrantes: ${miembros.length}`;
+  }
+  if (gastoDeboTotal) gastoDeboTotal.textContent = formatEur(totalDeuda);
+
+  if (!otrosMiembros.length) {
+    gastoDeboList.innerHTML = '<div class="gasto-list-item"><span>Solo estas tu.</span><span>0.00 €</span></div>';
+  } else {
+    gastoDeboList.innerHTML = rows.join('');
+  }
+
+  if (pagoHint) {
+    pagoHint.textContent = totalPagos ? `Pagos registrados: ${formatEur(totalPagos)}` : 'Registra pagos para recalcular la deuda.';
+  }
+}
+
+async function setupGastosUI(grupo, tiquets) {
+  const card = document.getElementById('gastoDeboCard');
+  if (card) {
+    card.addEventListener('click', (e) => {
+      if (e.target.closest('form')) return;
+      card.classList.toggle('open');
+    });
+  }
+
+  const select = document.getElementById('gastoPagoUser');
+  if (select) {
+    const miembros = (grupo.miembros || []).filter(m => Number(m.id) !== Number(MI_USUARIO_ID));
+    if (!miembros.length) {
+      select.innerHTML = '<option value="">Sin miembros</option>';
+      select.disabled = true;
+    } else {
+      select.disabled = false;
+      select.innerHTML = miembros.map(m => `
+        <option value="${m.id}">${escHtml(m.username)}</option>`
+      ).join('');
+    }
+  }
+
+  const form = document.getElementById('gastoPagoForm');
+  if (form) {
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const userId = Number(document.getElementById('gastoPagoUser')?.value || 0);
+      const amount = parseAmount(document.getElementById('gastoPagoAmount')?.value || 0);
+      if (!userId) {
+        showToast('Selecciona a quien has pagado', 'error');
+        return;
+      }
+      if (!amount || amount <= 0) {
+        showToast('Introduce una cantidad valida', 'error');
+        return;
+      }
+      try {
+        const res = await fetch(`/api/grupos/${grupoActualId}/pagos`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ to_user_id: userId, amount })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          showToast(data.error || 'No se pudo guardar el pago', 'error');
+          return;
+        }
+        document.getElementById('gastoPagoAmount').value = '';
+        showToast('Pago registrado');
+        pagosActuales = await fetchPagosGrupo(grupoActualId);
+        renderGastosUI(grupo, tiquets, pagosActuales);
+      } catch (e) {
+        showToast('Error de conexion', 'error');
+      }
+    });
+  }
+
+  pagosActuales = await fetchPagosGrupo(grupoActualId);
+  renderGastosUI(grupo, tiquets, pagosActuales);
+}
+
 // ── Helper escape HTML ────────────────────────────────────────
 function escHtml(str) {
   return String(str || '')
@@ -549,6 +794,13 @@ function escHtml(str) {
     .replace(/>/g,'&gt;')
     .replace(/"/g,'&quot;')
     .replace(/'/g,'&#39;');
+}
+
+function avatarUrlFromPath(avatarPath) {
+  if (!avatarPath) return '';
+  const name = String(avatarPath).split('/').pop();
+  if (!name) return '';
+  return `/avatar/${encodeURIComponent(name)}`;
 }
 
 // ── Funciones puente para eventos ─────────────────────────────
@@ -580,6 +832,15 @@ document.addEventListener('click', function (e) {
   if (action === 'abrir-modal-crear') abrirModalCrear();
   if (action === 'cerrar-modal-crear') cerrarModalCrear();
   if (action === 'crear-grupo') crearGrupo();
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+  const params = new URLSearchParams(window.location.search);
+  const openId = params.get('open_grupo');
+  if (openId) {
+    const gid = parseInt(openId, 10);
+    if (Number.isFinite(gid)) abrirGrupo(gid, 'Grupo');
+  }
 });
 </script>
 </body>

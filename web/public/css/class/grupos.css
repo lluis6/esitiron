@@ -200,6 +200,124 @@
       letter-spacing: 0.06em; color: var(--text3); margin-bottom: 0.75rem;
     }
 
+    /* ── Control de gastos ─────────────────────────────── */
+    .gastos-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 0.75rem;
+      margin-bottom: 0.25rem;
+      align-items: stretch;
+    }
+    .gasto-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 0.75rem;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      overflow: visible;
+      height: 100%;
+    }
+    .gasto-card.gasto-click { cursor: pointer; }
+    .gasto-label {
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text3);
+    }
+    .gasto-amount {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: var(--text);
+      margin-top: 0.35rem;
+    }
+    .gasto-amount.neg { color: var(--accent); }
+    .gasto-sub {
+      font-size: 0.74rem;
+      color: var(--text3);
+      margin-top: 0.3rem;
+    }
+    .gasto-dropdown {
+      display: none;
+      position: absolute;
+      top: calc(100% + 0.5rem);
+      left: 0;
+      right: 0;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--white);
+      padding: 0.6rem;
+      box-shadow: var(--shadow);
+      max-height: 140px;
+      overflow-y: auto;
+      z-index: 2;
+    }
+    .gasto-card.open .gasto-dropdown { display: block; }
+    .gasto-drop-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 0.72rem;
+      color: var(--text3);
+      margin-bottom: 0.4rem;
+    }
+    .gasto-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+    .gasto-list-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 0.82rem;
+      color: var(--text2);
+    }
+    .gasto-list-item.neg span { color: var(--accent); }
+    .gasto-list-item strong {
+      color: var(--text);
+      font-weight: 600;
+    }
+    .gasto-form {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      margin-top: 0.5rem;
+      flex: 1;
+    }
+    .gasto-card.gasto-pago .gasto-form { margin-top: auto; }
+    .gasto-select,
+    .gasto-input {
+      flex: 1;
+      min-width: 0;
+      padding: 0.45rem 0.6rem;
+      border: 1px solid var(--border2);
+      border-radius: var(--radius-xs);
+      font-size: 0.8rem;
+      font-family: inherit;
+      color: var(--text);
+      background: var(--surface);
+      outline: none;
+    }
+    .gasto-btn {
+      padding: 0.45rem 0.7rem;
+      border: 1px solid var(--accent);
+      border-radius: var(--radius-xs);
+      background: var(--accent-lt);
+      color: var(--accent);
+      font-size: 0.78rem;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.2s ease;
+    }
+    .gasto-btn:hover {
+      background: var(--accent);
+      color: #fff;
+    }
+
     /* Miembro item en panel */
     .miembro-item {
       display: flex; align-items: center; gap: 0.75rem;
@@ -207,12 +325,36 @@
       border-bottom: 1px solid var(--border);
     }
     .miembro-item:last-child { border-bottom: none; }
+    .miembros-extra { display: none; }
+    .miembros-extra.open { display: block; }
+    .miembros-toggle {
+      margin-top: 0.5rem;
+      padding: 0.35rem 0.9rem;
+      border: 1px solid var(--border2);
+      border-radius: var(--radius-xs);
+      background: var(--surface2);
+      color: var(--text);
+      font-size: 0.75rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    .miembros-toggle:hover { background: var(--surface); }
     .miembro-avatar {
       width: 32px; height: 32px;
       background: linear-gradient(135deg, var(--accent), #34D399);
       border-radius: 50%;
       display: flex; align-items: center; justify-content: center;
       font-size: 0.75rem; font-weight: 700; color: #fff; flex-shrink: 0;
+    }
+    .miembro-avatar-img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border-radius: 50%;
+      display: block;
     }
     .miembro-name { flex: 1; font-weight: 600; font-size: 0.875rem; color: var(--text); }
 

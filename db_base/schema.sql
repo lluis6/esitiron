@@ -239,6 +239,22 @@ CREATE TABLE IF NOT EXISTS tiquets_grupos (
     INDEX idx_tg_grupo (grupo_id)
 ) ENGINE=InnoDB;
 
+CREATE TABLE IF NOT EXISTS grupos_pagos (
+    id             INT UNSIGNED   NOT NULL AUTO_INCREMENT,
+    grupo_id       INT UNSIGNED   NOT NULL,
+    from_user_id   INT UNSIGNED   NOT NULL,
+    to_user_id     INT UNSIGNED   NOT NULL,
+    cantidad       DECIMAL(10,2)  NOT NULL,
+    creado_en      DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    INDEX idx_gp_grupo (grupo_id),
+    INDEX idx_gp_from (from_user_id),
+    INDEX idx_gp_to   (to_user_id),
+    FOREIGN KEY (grupo_id)     REFERENCES grupos(id)   ON DELETE CASCADE,
+    FOREIGN KEY (from_user_id) REFERENCES usuarios(id) ON DELETE CASCADE,
+    FOREIGN KEY (to_user_id)   REFERENCES usuarios(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
 -- ─────────────────────────────────────────────────────────────
 -- VISTAS
 -- ─────────────────────────────────────────────────────────────

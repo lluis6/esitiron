@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Esítiron — Tiquet #{{ numUsuario }}</title>
+  <title>Esítiron — {% if esPropietario %}Tu tiquet{% else %}Tique de {{ tiquet.owner_username }}{% endif %} #{{ numUsuario }}</title>
   <script src="/js/theme.js"></script>
   <link rel="stylesheet" href="/css/main.css">
   <link rel="stylesheet" href="/css/class/tiquet_detalle.css">
@@ -74,7 +74,7 @@
 <main class="main">
   <!-- Barra de acciones superior -->
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:0.75rem;">
-    <a href="/tiquets" class="btn-back" style="margin:0;">← Volver</a>
+    <a href="/tiquets" class="btn-back" id="btnBack" style="margin:0;">← Volver</a>
     <div style="display:flex;gap:0.6rem;align-items:center;">
       <button class="btn-share-group" id="btnShareGroup" type="button">👥 Compartir en grupo</button>
       <button class="btn-editar-precios" id="btnEditarPrecios" onclick="toggleEditarPrecios()">
@@ -85,7 +85,10 @@
   </div>
 
   <div class="page-header">
-    <h1 class="page-title">Tu tiquet #{{ numUsuario }}</h1>
+    <div class="page-title-row">
+      <h1 class="page-title">{% if esPropietario %}Tu tiquet{% else %}Tique de {{ tiquet.owner_username }}{% endif %} #{{ numUsuario }}</h1>
+      <span id="shareBadge" class="badge share-badge" style="display: {{ 'inline-flex' if tiquet_compartido else 'none' }};">Compartido</span>
+    </div>
     <p class="page-subtitle" id="pageSubtitle">{{ tiquet.supermercado }} · {{ tiquet.fecha_compra | formatDate }}</p>
   </div>
 
@@ -730,6 +733,8 @@ async function compartirEnGrupo(grupoId, nombreGrupo, btnEl) {
     }
     if (ok) {
       setShareStatus('✅ Tiquet compartido en "' + nombreGrupo + '"');
+      const badge = document.getElementById('shareBadge');
+      if (badge) badge.style.display = 'inline-flex';
       setTimeout(() => cerrarCompartir(), 700);
     } else {
       setShareStatus(errMsg || 'No se pudo compartir el tiquet.', true);
@@ -742,6 +747,15 @@ async function compartirEnGrupo(grupoId, nombreGrupo, btnEl) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  const backBtn = document.getElementById('btnBack');
+  if (backBtn) {
+    const params = new URLSearchParams(window.location.search);
+    const fromGrupo = params.get('from_grupo');
+    if (fromGrupo) {
+      backBtn.setAttribute('href', `/grupos?open_grupo=${encodeURIComponent(fromGrupo)}`);
+    }
+  }
+
   const btnShare = document.getElementById('btnShareGroup');
   if (btnShare) btnShare.addEventListener('click', abrirCompartir);
 

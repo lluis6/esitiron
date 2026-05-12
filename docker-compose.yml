@@ -152,16 +152,17 @@ services:
     image: mysql:8.0
     container_name: db_mysql_slave
     command: >
-      --character-set-server=utf8mb4
-      --collation-server=utf8mb4_unicode_ci
-      --skip-character-set-client-handshake
-      --server-id=2
-      --relay-log=relay-bin
-      --read-only=1
-      --super-read-only=1
-      --gtid-mode=ON
-      --enforce-gtid-consistency=ON
-      --default-authentication-plugin=mysql_native_password
+      bash -c "(while true; do /usr/local/bin/auto_promote.sh; sleep 10; done &) && 
+      /usr/local/bin/docker-entrypoint.sh mysqld 
+      --character-set-server=utf8mb4 
+      --collation-server=utf8mb4_unicode_ci 
+      --server-id=2 
+      --relay-log=relay-bin 
+      --read-only=1 
+      --super-read-only=1 
+      --gtid-mode=ON 
+      --enforce-gtid-consistency=ON 
+      --default-authentication-plugin=mysql_native_password"
     env_file:
       - ./.env
     environment:
@@ -174,7 +175,7 @@ services:
       - ./.env:/app/.env:ro
     entrypoint: >
       bash -c "(while true; do /usr/local/bin/auto_promote.sh; sleep 10; done &) && 
-      /usr/local/bin/docker-entrypoint.sh mysqld"
+      /usr/local/bin/docker-entrypoint.sh mysqld --server-id=2 --gtid-mode=ON --enforce-gtid-consistency=ON"
     depends_on:
       db:
         condition: service_healthy
@@ -250,6 +251,7 @@ services:
       - '--containerd-namespace=moby'
       - '--docker_only=true'
       - '--store_container_labels=true'
+      - '--docker=http://socket-proxy:2375'
     volumes:
       - /:/rootfs:ro
       - /dev/disk/:/dev/disk:ro

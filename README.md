@@ -1,19 +1,19 @@
-# Esitiron - Plataforma de gestion de tiquets con OCR y monitorizacion
+# Esitiron - Plataforma de gestión de tiquets con OCR y monitorización
 
-Stack dockerizado para subir tiquets (imagen/PDF), extraer productos con OCR + IA, validar resultados, y almacenar historicos con observabilidad completa.
+Stack dockerizado para subir tiquets (imagen/PDF), extraer productos con OCR + IA, validar resultados, y almacenar históricos con observabilidad completa.
 
-## Vision general
+## Visión general
 
 Flujo funcional:
-1. El usuario inicia sesion, sube un tiquet y lo revisa en la vista previa.
-2. La app envia el archivo al OCR y recibe supermercado, fecha, total y lineas.
-3. El usuario confirma, se persiste en MySQL y se alimenta el historico.
-4. El catalogo maestro y el diccionario mejoran la curacion con el tiempo.
+1. El usuario inicia sesión, sube un tiquet y lo revisa en la vista previa.
+2. La app envía el archivo al OCR y recibe supermercado, fecha, total y líneas.
+3. El usuario confirma, se persiste en MySQL y se alimenta el histórico.
+4. El catálogo maestro y el diccionario mejoran la curación con el tiempo.
 
 Puntos de entrada:
 - Nginx hace de proxy inverso y aplica seguridad a rutas sensibles.
-- La app web consume OCR y MySQL a traves de ProxySQL.
-- El stack de monitorizacion captura metricas y logs internos.
+- La app web consume OCR y MySQL a través de ProxySQL.
+- El stack de monitorización captura métricas y logs internos.
 
 ## Servicios y responsabilidades
 
@@ -26,18 +26,18 @@ Los servicios se orquestan en [docker-compose.yml](docker-compose.yml). Puertos 
 | ProxySQL | proxysql | 6032/6033 -> 6032/6033 | Enrutamiento MySQL |
 
 Servicios internos clave:
-- web (Node.js): servidor principal, sesiones, 2FA, OCR, curacion y metricas.
-- ocr (FastAPI): endpoint /analizar, soporte imagen/PDF, Gemini con rotacion de claves.
+- web (Node.js): servidor principal, sesiones, 2FA, OCR, curación y métricas.
+- ocr (FastAPI): endpoint /analizar, soporte imagen/PDF, Gemini con rotación de claves.
 - db (MySQL master) y db_replica (MySQL read-only).
 - prometheus, loki, promtail y exporters (node, nginx, mysql, cadvisor).
 - socket-proxy: proxy seguro al socket de Docker para promtail/cAdvisor.
-- tailscale y cloudflared: exposicion externa controlada.
+- tailscale y cloudflared: exposición externa controlada.
 
 Redes Docker:
-- red_publica: trafico de entrada (proxy, tailscale, cloudflared).
+- red_publica: tráfico de entrada (proxy, tailscale, cloudflared).
 - red_interna: base de datos y ProxySQL (internal).
 - red_procesamiento: web y ocr (internal).
-- red_ia: trafico del OCR.
+- red_ia: tráfico del OCR.
 - red_monitoring: observabilidad.
 
 ## Seguridad y acceso
@@ -45,7 +45,7 @@ Redes Docker:
 Reglas destacadas en [nginx.conf](nginx.conf):
 - Rate limiting en /login y /login/2fa.
 - /metrics y /avatars bloqueados desde fuera.
-- /avatar/ se sirve desde la app con cache segura.
+- /avatar/ se sirve desde la app con caché segura.
 - Proxy CORS para OpenFoodFacts en /api/openfoodfacts/.
 
 En la app ([web/server.js](web/server.js)):
@@ -80,7 +80,7 @@ App web:
 - AVATARS_DIR (opcional)
 
 OCR (Gemini):
-- CLAVE_1..CLAVE_10 (rotacion)
+- CLAVE_1..CLAVE_10 (rotación)
 - CLAVE_API (fallback)
 
 OpenFoodFacts (opcional):
@@ -89,7 +89,7 @@ OpenFoodFacts (opcional):
 - OPF_TIMEOUT_MS, OPF_USER_ID, OPF_PASSWORD, OPF_USER_AGENT
 - OPENFACTS_API_KEY
 
-Monitorizacion:
+Monitorización:
 - GF_ADMIN_USER
 - GF_ADMIN_PASSWORD
 
@@ -98,7 +98,7 @@ Conectividad externa:
 - TS_HOSTNAME
 - CLOUDFLARE_TUNNEL_TOKEN
 
-## Operacion diaria
+## Operación diaria
 
 Requisitos:
 - Docker + Docker Compose
@@ -127,20 +127,20 @@ docker compose down
 docker compose down -v  # destructivo
 ~~~
 
-Salud rapida:
+Salud rápida:
 ~~~bash
 curl -s http://localhost:8080/health
 docker compose exec prometheus wget -qO- http://localhost:9090/-/healthy
 docker compose exec grafana wget -qO- http://localhost:3000/api/health
 ~~~
 
-## Datos y replicacion
+## Datos y replicación
 
-Esquema base en [db_base/schema.sql](db_base/schema.sql). La app aplica pequenas migraciones en arranque.
+Esquema base en [db_base/schema.sql](db_base/schema.sql). La app aplica pequeñas migraciones en arranque.
 
 Replica y failover:
-- db_replica ejecuta [monitoring/scripts/sql/auto_promote.sh](monitoring/scripts/sql/auto_promote.sh) para promocion automatica si cae el master.
-- ProxySQL decide lecturas/escrituras segun [proxysql.cnf](proxysql.cnf).
+- db_replica ejecuta [monitoring/scripts/sql/auto_promote.sh](monitoring/scripts/sql/auto_promote.sh) para promoción automática si cae el master.
+- ProxySQL decide lecturas/escrituras según [proxysql.cnf](proxysql.cnf).
 
 Acceso SQL manual:
 ~~~bash
@@ -157,7 +157,7 @@ docker compose exec -T db sh -lc 'mysql -u root -p"$MYSQL_ROOT_PASSWORD" "$MYSQL
 Backup automatizado:
 - Script en [monitoring/scripts/backup/backup_esitiron.sh](monitoring/scripts/backup/backup_esitiron.sh).
 - Requiere el disco externo montado en /home/esitiron/external_disk.
-- Guarda copias en /home/esitiron/external_disk/copias/ y rota > 30 dias.
+- Guarda copias en /home/esitiron/external_disk/copias/ y rota > 30 días.
 
 Control de CPU OCR:
 - Script en [monitoring/scripts/cpu/cpu_watchdog.sh](monitoring/scripts/cpu/cpu_watchdog.sh).
@@ -179,7 +179,7 @@ Tailscale se configura en [tailscale/entrypoint.sh](tailscale/entrypoint.sh):
 
 Cloudflared usa CLOUDFLARE_TUNNEL_TOKEN para el tunnel.
 
-## Estructura rapida
+## Estructura rápida
 
 ~~~text
 .
@@ -215,13 +215,13 @@ Cloudflared usa CLOUDFLARE_TUNNEL_TOKEN para el tunnel.
 |  |- entrypoint.sh
 ~~~
 
-## 9. Observaciones Tecnicas
+## 9. Observaciones Técnicas
 
-- OCR integra limpieza/normalizacion y guarda nombre_ocr para alimentar el diccionario de curacion.
-- La vinculacion de productos puede consolidar historicos y limpiar maestros temporales.
+- OCR integra limpieza/normalización y guarda nombre_ocr para alimentar el diccionario de curación.
+- La vinculación de productos puede consolidar históricos y limpiar maestros temporales.
 - OpenFoodFacts tiene fallback multi-origen para mejorar resiliencia cuando hay respuestas HTML/503.
-- /avatars/ directo esta bloqueado en Nginx; la entrega segura se hace por /avatar/:filename validando sesion.
-- Grafana no tiene puerto publicado al host por diseno de seguridad.
+- /avatars/ directo está bloqueado en Nginx; la entrega segura se hace por /avatar/:filename validando sesión.
+- Grafana no tiene puerto publicado al host por diseño de seguridad.
 
 ---
-Si quieres, en un siguiente paso puedo anadir tambien un .env.example limpio y una seccion de troubleshooting por errores tipicos (OCR, DB charset, timeouts OFF, permisos Docker).
+Si quieres, en un siguiente paso puedo añadir también un .env.example limpio y una sección de troubleshooting por errores típicos (OCR, DB charset, timeouts OFF, permisos Docker).

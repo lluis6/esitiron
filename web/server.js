@@ -755,12 +755,31 @@ async function getTiquetByUUID(uuid, uid) {
   return t || null;
 }
 
+async function getTiquetByUUIDConAcceso(uuid, uid) {
+  const [[t]] = await dbPool.execute(`
+    SELECT t.*, u.username AS owner_username
+    FROM tiquets t
+    JOIN usuarios u ON u.id = t.id_usuario
+    LEFT JOIN tiquets_grupos tg ON tg.tiquet_id = t.id
+    LEFT JOIN miembros_grupo mg ON mg.grupo_id = tg.grupo_id AND mg.usuario_id = ?
+    WHERE t.uuid = ? AND (t.id_usuario = ? OR mg.id IS NOT NULL)
+    LIMIT 1
+  `, [uid, uuid, uid]);
+  return t || null;
+}
+
 async function getNumTiquet(id, uid) {
   const [[r]] = await dbPool.execute('SELECT COUNT(*) AS n FROM tiquets WHERE id_usuario=? AND id<=?', [uid, id]);
   return r.n;
 }
 
-async function getProductosTiquet(idTiquet, uid) {
+async function getProductosTiquet(idTiquet, uid, allowShared = false) {
+  const params = [idTiquet];
+  let extra = '';
+  if (!allowShared) {
+    extra = ' AND c.id_usuario=?';
+    params.push(uid);
+  }
   const [r] = await dbPool.execute(`
     SELECT pm.nombre AS producto, pm.categoria, pm.foto_url,
            pm.id AS id_producto,
@@ -768,8 +787,8 @@ async function getProductosTiquet(idTiquet, uid) {
            c.precio_unitario AS precio, c.es_descuento
     FROM compras c
     JOIN productos_maestros pm ON pm.id=c.id_producto
-    WHERE c.id_tiquet=? AND c.id_usuario=? ORDER BY c.id
-  `, [idTiquet, uid]);
+    WHERE c.id_tiquet=?${extra} ORDER BY c.id
+  `, params);
   return r;
 }
 
@@ -1067,13 +1086,16 @@ app.post('/rechazar', auth, (req, res) => { delete req.session.tiquetPendent; re
 app.get('/tiquet/:uuid', auth, async (req, res) => {
   try {
     const uid    = req.session.usuario.id;
-    const tiquet = await getTiquetByUUID(req.params.uuid, uid);
+    const tiquet = await getTiquetByUUIDConAcceso(req.params.uuid, uid);
     if (!tiquet) return res.redirect('/dashboard?error=Tiquet+no+encontrado');
-    const [productos, numUsuario] = await Promise.all([
-      getProductosTiquet(tiquet.id, uid),
-      getNumTiquet(tiquet.id, uid),
+    const esPropietario = Number(tiquet.id_usuario) === Number(uid);
+    const [sharedRow, productos, numUsuario] = await Promise.all([
+      dbPool.execute('SELECT COUNT(*) AS n FROM tiquets_grupos WHERE tiquet_id = ?', [tiquet.id]).then(r => r[0][0]),
+      getProductosTiquet(tiquet.id, esPropietario ? uid : tiquet.id_usuario, !esPropietario),
+      getNumTiquet(tiquet.id, esPropietario ? uid : tiquet.id_usuario),
     ]);
-    res.render('tiquet_detalle.html', { ...navLocals(req), tiquet, productos, numUsuario, messages: [] });
+    const tiquet_compartido = Number(sharedRow?.n || 0) > 0;
+    res.render('tiquet_detalle.html', { ...navLocals(req), tiquet, productos, numUsuario, esPropietario, tiquet_compartido, messages: [] });
   } catch (e) { console.error('[Tiquet]', e.message); res.redirect('/dashboard'); }
 });
 

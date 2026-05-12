@@ -246,6 +246,27 @@
         flex-shrink: 0;
     }
 
+    /* ── Grupos: control de gastos en movil ─────────────── */
+    .gastos-grid {
+        grid-template-columns: 1fr !important;
+    }
+    .gasto-card.gasto-pago {
+        width: 100% !important;
+    }
+    .gasto-form {
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 0.6rem !important;
+    }
+    .gasto-select,
+    .gasto-input,
+    .gasto-btn {
+        width: 100% !important;
+    }
+    .gasto-btn {
+        justify-content: center !important;
+    }
+
     main, .main {
         padding: 15px !important;
         padding-bottom: 40px !important;

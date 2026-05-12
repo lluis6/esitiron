@@ -18,6 +18,21 @@
   flex-wrap: wrap;
 }
 
+.page-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.share-badge {
+  background: rgba(16,185,129,0.12);
+  color: var(--accent);
+  border: 1px solid rgba(16,185,129,0.35);
+  font-weight: 700;
+  font-size: 0.72rem;
+}
+
 /* ── Overlay de confirmación de borrado ──────────────────────── */
 .confirm-overlay {
   display: none; position: fixed; inset: 0; z-index: 500;

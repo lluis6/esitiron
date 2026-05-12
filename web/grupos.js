@@ -123,23 +123,96 @@ router.get('/api/grupos/:id', auth, async (req, res) => {
 });
 
 /**
- * DELETE /api/grupos/:id
- * Solo el creador/admin puede eliminar el grupo.
+ * LÓGICA DE SUCESIÓN Y SALIDA
+ * Se encarga de que el grupo no se quede huérfano si el admin se va.
  */
-router.delete('/api/grupos/:id', auth, async (req, res) => {
-  const uid     = req.session.usuario.id;
+async function procesarSalidaGrupo(grupoId, targetUid, usuarioEjecutorId) {
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    // 1. Obtener el rol del usuario que quiere salir/ser expulsado
+    const [[miembro]] = await conn.execute(
+      'SELECT rol FROM miembros_grupo WHERE grupo_id = ? AND usuario_id = ?',
+      [grupoId, targetUid]
+    );
+    if (!miembro) throw new Error('El usuario no es miembro de este grupo');
+
+    // 2. Si el usuario que se va es ADMIN, buscar un sucesor
+    if (miembro.rol === 'admin') {
+      const [posiblesSucesores] = await conn.execute(
+        'SELECT usuario_id FROM miembros_grupo WHERE grupo_id = ? AND usuario_id != ? ORDER BY unido_en ASC LIMIT 1',
+        [grupoId, targetUid]
+      );
+
+      if (posiblesSucesores.length > 0) {
+        // Asignar el rol de admin al miembro más antiguo
+        const nuevoAdminId = posiblesSucesores[0].usuario_id;
+        await conn.execute(
+          "UPDATE miembros_grupo SET rol = 'admin' WHERE grupo_id = ? AND usuario_id = ?",
+          [grupoId, nuevoAdminId]
+        );
+        // Opcional: Actualizar también el creador_id en la tabla grupos para evitar borrados en cascada
+        await conn.execute(
+          "UPDATE grupos SET creador_id = ? WHERE id = ?",
+          [nuevoAdminId, grupoId]
+        );
+        console.log(`[Grupos] Sucesor nombrado: ${nuevoAdminId} en grupo ${grupoId}`);
+      } else {
+        // No queda nadie más, el grupo se puede quedar vacío o borrarse
+        // Dependiendo de tu DB, esto podría disparar el borrado del grupo
+        console.log(`[Grupos] Grupo ${grupoId} se ha quedado sin miembros.`);
+      }
+    }
+
+    // 3. Eliminar al miembro
+    await conn.execute(
+      'DELETE FROM miembros_grupo WHERE grupo_id = ? AND usuario_id = ?',
+      [grupoId, targetUid]
+    );
+
+    await conn.commit();
+    return { success: true };
+  } catch (e) {
+    await conn.rollback();
+    throw e;
+  } finally {
+    conn.release();
+  }
+}
+
+// NUEVA ruta — Salir del grupo (uno mismo)
+router.delete('/api/grupos/:id/miembros/me', auth, async (req, res) => {
+  const uid = req.session.usuario.id;
   const grupoId = parseInt(req.params.id, 10);
+  try {
+    const result = await procesarSalidaGrupo(grupoId, uid, uid);
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Expulsar a un miembro (solo admins pueden expulsar a otros)
+router.delete('/api/grupos/:id/miembros/:targetUid', auth, async (req, res) => {
+  const uid = req.session.usuario.id;
+  const grupoId = parseInt(req.params.id, 10);
+  const targetUid = parseInt(req.params.targetUid, 10);
 
   try {
-    const [[miembro]] = await db.execute(
-      "SELECT rol FROM miembros_grupo WHERE grupo_id = ? AND usuario_id = ?",
-      [grupoId, uid]
-    );
-    if (!miembro || miembro.rol !== 'admin') {
-      return res.status(403).json({ error: 'Solo un admin puede eliminar el grupo' });
+    // Verificar si el ejecutor es admin (solo si no se está echando a sí mismo)
+    if (uid !== targetUid) {
+      const [[ejecutor]] = await db.execute(
+        'SELECT rol FROM miembros_grupo WHERE grupo_id = ? AND usuario_id = ?',
+        [grupoId, uid]
+      );
+      if (!ejecutor || ejecutor.rol !== 'admin') {
+        return res.status(403).json({ error: 'Solo un admin puede expulsar miembros' });
+      }
     }
-    await db.execute('DELETE FROM grupos WHERE id = ?', [grupoId]);
-    res.json({ success: true });
+
+    const result = await procesarSalidaGrupo(grupoId, targetUid, uid);
+    res.json(result);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -469,6 +542,85 @@ router.delete('/api/grupos/:id/tiquets/:uuid', auth, async (req, res) => {
   }
 });
 
+// ════════════════════════════════════════════════════════════
+// PAGOS ENTRE MIEMBROS
+// ════════════════════════════════════════════════════════════
+
+/**
+ * GET /api/grupos/:id/pagos
+ * Listar pagos entre miembros del grupo.
+ */
+router.get('/api/grupos/:id/pagos', auth, async (req, res) => {
+  const uid = req.session.usuario.id;
+  const grupoId = parseInt(req.params.id, 10);
+
+  if (!Number.isFinite(grupoId)) return res.status(400).json({ error: 'Grupo inválido' });
+
+  try {
+    const [[miembro]] = await db.execute(
+      'SELECT id FROM miembros_grupo WHERE grupo_id = ? AND usuario_id = ?',
+      [grupoId, uid]
+    );
+    if (!miembro) return res.status(403).json({ error: 'No eres miembro de este grupo' });
+
+    const [pagos] = await db.execute(`
+      SELECT p.id, p.grupo_id, p.from_user_id, p.to_user_id, p.cantidad, p.creado_en,
+             uf.username AS from_user, ut.username AS to_user
+      FROM grupos_pagos p
+      JOIN usuarios uf ON uf.id = p.from_user_id
+      JOIN usuarios ut ON ut.id = p.to_user_id
+      WHERE p.grupo_id = ?
+      ORDER BY p.creado_en DESC
+    `, [grupoId]);
+
+    res.json(pagos);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * POST /api/grupos/:id/pagos
+ * Registrar pago: from_user -> to_user
+ */
+router.post('/api/grupos/:id/pagos', auth, async (req, res) => {
+  const uid = req.session.usuario.id;
+  const grupoId = parseInt(req.params.id, 10);
+  const toUserId = parseInt(req.body.to_user_id, 10);
+  const cantidad = Number(req.body.amount || req.body.cantidad || 0);
+
+  if (!Number.isFinite(grupoId)) return res.status(400).json({ error: 'Grupo inválido' });
+  if (!Number.isFinite(toUserId) || toUserId <= 0 || toUserId === uid) {
+    return res.status(400).json({ error: 'Usuario destino inválido' });
+  }
+  if (!Number.isFinite(cantidad) || cantidad <= 0) {
+    return res.status(400).json({ error: 'Cantidad inválida' });
+  }
+
+  try {
+    const [[miembro]] = await db.execute(
+      'SELECT id FROM miembros_grupo WHERE grupo_id = ? AND usuario_id = ?',
+      [grupoId, uid]
+    );
+    if (!miembro) return res.status(403).json({ error: 'No eres miembro de este grupo' });
+
+    const [[destino]] = await db.execute(
+      'SELECT id FROM miembros_grupo WHERE grupo_id = ? AND usuario_id = ?',
+      [grupoId, toUserId]
+    );
+    if (!destino) return res.status(404).json({ error: 'El usuario no esta en el grupo' });
+
+    await db.execute(
+      'INSERT INTO grupos_pagos (grupo_id, from_user_id, to_user_id, cantidad) VALUES (?,?,?,?)',
+      [grupoId, uid, toUserId, cantidad]
+    );
+
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // NUEVA ruta — salir del grupo (cualquier miembro)
 router.delete('/api/grupos/:id/miembros/me', auth, async (req, res) => {
   const uid     = req.session.usuario.id;
@@ -491,34 +643,50 @@ router.delete('/api/grupos/:id/miembros/me', auth, async (req, res) => {
   }
 });
 
-/**
- * DELETE /api/grupos/:id/miembros/:uid
- * Expulsar a un miembro (solo admins). O salir del grupo (cualquier miembro).
- */
-router.delete('/api/grupos/:id/miembros/:targetUid', auth, async (req, res) => {
-  const uid       = req.session.usuario.id;
-  const grupoId   = parseInt(req.params.id, 10);
-  const targetUid = parseInt(req.params.targetUid, 10);
+router.delete('/api/grupos/:id', auth, async (req, res) => {
+  const uid     = req.session.usuario.id;
+  const grupoId = parseInt(req.params.id, 10);
 
+  const conn = await db.getConnection();
   try {
-    const [[miembro]] = await db.execute(
-      'SELECT rol FROM miembros_grupo WHERE grupo_id = ? AND usuario_id = ?',
+    await conn.beginTransaction();
+
+    // 1. Verificar que quien intenta borrar es el ADMIN
+    const [[miembro]] = await conn.execute(
+      "SELECT rol FROM miembros_grupo WHERE grupo_id = ? AND usuario_id = ?",
       [grupoId, uid]
     );
-    if (!miembro) return res.status(403).json({ error: 'No eres miembro' });
 
-    // Puede expulsar si es admin, o si se está saliendo él mismo
-    if (uid !== targetUid && miembro.rol !== 'admin') {
-      return res.status(403).json({ error: 'Solo un admin puede expulsar miembros' });
+    if (!miembro || miembro.rol !== 'admin') {
+      await conn.rollback();
+      return res.status(403).json({ error: 'Solo un admin puede eliminar el grupo' });
     }
 
-    await db.execute(
-      'DELETE FROM miembros_grupo WHERE grupo_id = ? AND usuario_id = ?',
-      [grupoId, targetUid]
-    );
+    // 2. Limpiar dependencias en orden para evitar errores de Foreign Key
+    
+    // Borrar invitaciones enviadas desde este grupo
+    await conn.execute('DELETE FROM invitaciones WHERE grupo_id = ?', [grupoId]);
+    
+    // Borrar el historial de pagos registrados en este grupo
+    await conn.execute('DELETE FROM grupos_pagos WHERE grupo_id = ?', [grupoId]);
+    
+    // Quitar la vinculación de tiquets con este grupo (esto no borra el tiquet del dueño, solo lo quita del grupo)
+    await conn.execute('DELETE FROM tiquets_grupos WHERE grupo_id = ?', [grupoId]);
+    
+    // Borrar a todos los miembros del grupo
+    await conn.execute('DELETE FROM miembros_grupo WHERE grupo_id = ?', [grupoId]);
+
+    // 3. Finalmente, borrar el registro del grupo
+    await conn.execute('DELETE FROM grupos WHERE id = ?', [grupoId]);
+
+    await conn.commit();
     res.json({ success: true });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    await conn.rollback();
+    console.error('[Grupos] Error fatal al eliminar:', e.message);
+    res.status(500).json({ error: 'No se pudo eliminar el grupo porque tiene datos activos vinculados.' });
+  } finally {
+    conn.release();
   }
 });
 
