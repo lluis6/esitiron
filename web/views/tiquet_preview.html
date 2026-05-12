@@ -348,34 +348,61 @@ function toggleModoEdicion() {
   btn.innerText = modoEdicion ? 'Ver tiquet' : 'Editar tiquet';
   document.body.classList.toggle('edit-mode', modoEdicion);
 
+  // Toggle de badges y headers
   document.getElementById('badgeRead').style.display = modoEdicion ? 'none' : '';
   document.getElementById('badgeEdit').style.display = modoEdicion ? ''     : 'none';
-
   document.getElementById('staticSuper').style.display = modoEdicion ? 'none' : '';
   document.getElementById('inputSuper').style.display  = modoEdicion ? ''     : 'none';
   document.getElementById('staticFecha').style.display = modoEdicion ? 'none' : '';
   document.getElementById('inputFecha').style.display  = modoEdicion ? ''     : 'none';
 
+  // Toggle de celdas
   document.querySelectorAll('.cell-static').forEach(el => el.style.display   = modoEdicion ? 'none' : '');
   document.querySelectorAll('.cell-editable').forEach(el => el.style.display = modoEdicion ? ''     : 'none');
   document.querySelectorAll('.col-actions').forEach(el => el.style.display   = modoEdicion ? ''     : 'none');
   document.getElementById('btnAddRow').style.display = modoEdicion ? '' : 'none';
 
-  // ── FIX: al entrar en modo edición, desbloquear el botón confirmar ──
-  if (modoEdicion && HAY_ERROR) {
-    clearCountdown();           // parar el auto-descarte
-    desbloquearConfirmar();     // el usuario puede editar y luego confirmar
-  }
-
-  // Sincronizar textos al salir de edición
   if (!modoEdicion) {
-    document.getElementById('staticSuper').textContent  = document.getElementById('inputSuper').value;
-    document.getElementById('staticFecha').textContent  = document.getElementById('inputFecha').value || 'No detectada';
+    // Actualizar cabecera estática
+    document.getElementById('staticSuper').textContent = document.getElementById('inputSuper').value;
+    document.getElementById('staticFecha').textContent = document.getElementById('inputFecha').value || 'No detectada';
 
+    // Actualizar cada fila de la tabla
     document.querySelectorAll('#tbodyProductos tr').forEach(fila => {
+      const cellsStatic = fila.querySelectorAll('.cell-static');
+      
+      // 1. Marca [1]
+      const inMarca = fila.querySelector('input[name$="[marca]"]');
+      if (inMarca) cellsStatic[1].textContent = inMarca.value;
+
+      // 2. Producto [2]
       const inProd = fila.querySelector('.input-nom');
-      const stProd = fila.querySelectorAll('.cell-static')[2];
-      if (inProd && stProd) stProd.textContent = inProd.value;
+      if (inProd) cellsStatic[2].textContent = inProd.value;
+
+      // 3. Categoría [3] (Corregido)
+      const inCat = fila.querySelector('select[name$="[categoria]"]');
+      if (inCat) {
+        const pill = cellsStatic[3].querySelector('span');
+        if (pill) {
+          pill.textContent = inCat.value;
+          pill.className = (inCat.value === 'Descuento') ? 'cat-pill-red' : 'cat-pill';
+        }
+      }
+
+      // 4. Cantidad [0]
+      const inCant = fila.querySelector('.input-cant');
+      const stCant = cellsStatic[0].querySelector('.qty-pill');
+      if (inCant && stCant) {
+        const esPeso = esCategoriaPeso(inCat ? inCat.value : '');
+        stCant.textContent = formatCantidad(parseFloat(inCant.value) || 0) + (esPeso ? ' kg' : '');
+      }
+
+      // 5. Precio [4] (Cambiado de 3 a 4)
+      const inPrec = fila.querySelector('.input-num');
+      if (inPrec) {
+        const esPeso = esCategoriaPeso(inCat ? inCat.value : '');
+        cellsStatic[4].textContent = parseFloat(inPrec.value).toFixed(2) + (esPeso ? ' €/kg' : ' €');
+      }
     });
   }
 }
