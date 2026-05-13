@@ -139,7 +139,7 @@
                 {% if p.es_descuento %} <span class="descuento-label">↓ {{ p.producto }}</span> {% else %} {{ p.producto }} {% endif %}
               </td>
               <td class="cell-editable" style="display:none;">
-                <input type="text" name="productos[{{ loop.index0 }}][producto]" class="edit-input input-nom" value="{{ p.producto }}" required>
+                <input type="text" name="productos[{{ loop.index0 }}][producto]" class="edit-input input-nom" value="{{ p.producto }}" {% if not p.es_descuento %}required{% endif %}>
               </td>
               
               <td class="cell-static"><span class="{{ 'cat-pill-red' if p.es_descuento else 'cat-pill' }}">{{ p.categoria }}</span></td>
@@ -276,6 +276,7 @@ function onCategoriaChange(select) {
   const inputCant = fila.querySelector('.input-cant');
   const inputEsD  = fila.querySelector('input[name$="[es_descuento]"]');
   const inputPrec = fila.querySelector('.input-num');
+  const inputNom  = fila.querySelector('.input-nom');
 
   fila.dataset.categoria = select.value;
 
@@ -289,6 +290,10 @@ function onCategoriaChange(select) {
       inputCant.classList.add('input-blocked');
     }
     if (inputPrec) inputPrec.value = -Math.abs(parseFloat(inputPrec.value.replace(',', '.')) || 0).toFixed(2);
+    if (inputNom) {
+      inputNom.required = false;
+      if (!inputNom.value.trim()) inputNom.value = 'Descuento';
+    }
   } else {
     fila.classList.remove('fila-descuento');
     if (inputEsD)  inputEsD.value = '0';
@@ -298,9 +303,28 @@ function onCategoriaChange(select) {
       inputCant.classList.remove('input-blocked');
     }
     if (inputPrec) inputPrec.value = Math.abs(parseFloat(inputPrec.value.replace(',', '.')) || 0).toFixed(2);
+    if (inputNom) inputNom.required = true;
   }
   if (inputCant && !esDesc) inputCant.step = esPeso ? '0.001' : '1';
   recalcular();
+}
+
+function ajustarCamposDescuentoInicial() {
+  document.querySelectorAll('#tbodyProductos tr').forEach(fila => {
+    const inputEsD = fila.querySelector('input[name$="[es_descuento]"]');
+    const inCat    = fila.querySelector('select[name$="[categoria]"]');
+    const inputNom = fila.querySelector('.input-nom');
+    const esDesc = (inputEsD && inputEsD.value === '1') || (inCat && inCat.value === 'Descuento');
+
+    if (esDesc && inCat && inCat.value !== 'Descuento') {
+      inCat.value = 'Descuento';
+      fila.dataset.categoria = 'Descuento';
+    }
+    if (inputNom) {
+      inputNom.required = !esDesc;
+      if (esDesc && !inputNom.value.trim()) inputNom.value = 'Descuento';
+    }
+  });
 }
 
 // ── Recalcular ────────────────────────────────────────────────
@@ -453,6 +477,7 @@ function anyadirFila() {
 // ── Init ──────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   recalcular();
+  ajustarCamposDescuentoInicial();
 
   // Arrancar el countdown solo si hay error
   if (HAY_ERROR) {

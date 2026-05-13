@@ -250,6 +250,7 @@ services:
       - '--containerd=/run/containerd/containerd.sock'
       - '--containerd-namespace=moby'
       - '--docker_only=true'
+      - '--whitelisted_container_labels=com.docker.compose.service,com.docker.compose.project'
       - '--store_container_labels=true'
       - '--docker=http://socket-proxy:2375'
     volumes:

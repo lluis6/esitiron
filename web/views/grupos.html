@@ -238,6 +238,7 @@ async function crearGrupo() {
       showToast('✅ Grupo creado correctamente');
       cerrarModalCrear();
       setTimeout(() => location.reload(), 800);
+    } else {
       showToast(data.error || 'Error al crear el grupo', 'error');
     }
   } catch (e) {
