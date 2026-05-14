@@ -63,7 +63,10 @@ fi
 
 # Backup de archivos Docker
 echo "Comprimiendo archivos de Docker..."
-tar -czf "$ARCHIVO_DOCKER" --exclude='node_modules' --exclude='.*' -C "$DOCKER_DIR" .
+tar -czf "$ARCHIVO_DOCKER" --exclude='node_modules' \
+    --exclude='.git' \
+    --exclude='.env' \
+    -C "$DOCKER_DIR" .
 
 if [ $? -eq 0 ]; then
     echo "[$(date)] Docker Files Backup OK: $ARCHIVO_DOCKER" >> $LOG_FILE
