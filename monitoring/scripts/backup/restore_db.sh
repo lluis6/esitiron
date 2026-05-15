@@ -40,8 +40,6 @@ echo "[$(date)] OK: Backup detectado -> $LATEST_BACKUP" >> "$LOG_FILE"
 echo "Restaurando archivo: $LATEST_BACKUP"
 
 # 4. Restaurar la base de datos USANDO ROOT
-# Cambiamos -u"${DB_USER}" por -u"root" 
-# y -p"${DB_PASSWORD}" por -p"${DB_ROOT_PASSWORD}"
 zcat "$LATEST_BACKUP" | docker exec -i "$CONTAINER_MASTER" mysql -u"root" -p"${DB_ROOT_PASSWORD}" "${DB_NAME}"
 
 # 5. Comprobación final

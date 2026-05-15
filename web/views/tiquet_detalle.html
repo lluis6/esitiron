@@ -29,7 +29,7 @@
     <div style="display:flex;justify-content:space-between;align-items:center;gap:.75rem;">
       <div>
         <div style="font-weight:700;color:var(--text);">👥 Compartir tiquet en grupo</div>
-        <div style="font-size:.8rem;color:var(--text3);">Selecciona un grupo para compartir este tiquet</div>
+        <div style="font-size:.8rem;color:var(--text3);">Selecciona un grupo para compartir o quitar este tiquet</div>
       </div>
       <button class="btn btn-secondary" type="button" onclick="cerrarCompartir()">Cerrar</button>
     </div>
@@ -76,7 +76,9 @@
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:0.75rem;">
     <a href="/tiquets" class="btn-back" id="btnBack" style="margin:0;">← Volver</a>
     <div style="display:flex;gap:0.6rem;align-items:center;">
+      {% if esPropietario %}
       <button class="btn-share-group" id="btnShareGroup" type="button">👥 Compartir en grupo</button>
+      {% endif %}
       <button class="btn-editar-precios" id="btnEditarPrecios" onclick="toggleEditarPrecios()">
         ✏️ Editar precios
       </button>
@@ -249,7 +251,8 @@
         <tfoot>
           <tr>
             <td colspan="4" id="tfootLabel">TOTAL</td>
-            <td class="right" id="totalFooter">{{ tiquet.total_tiquet | format }} €</td>
+            <td class="right" colspan="2" id="totalFooter">{{ tiquet.total_tiquet | format }} €</td>
+            <td class="col-actions col-accion-hidden"></td>
           </tr>
         </tfoot>
       </table>
@@ -297,6 +300,8 @@
 
 <script>
 const TIQUET_ID = '{{ tiquet.uuid }}';
+const TIQUET_DB_ID = Number('{{ tiquet.id }}') || 0;
+const IS_OWNER = {{ 'true' if esPropietario else 'false' }};
 const filas = document.querySelectorAll('#tbodyProductos tr');
 
 // Numero de columnas visibles sin edicion: Cant + Foto + Producto + Categoria + Precio = 5
@@ -613,6 +618,7 @@ function actualizarTotalDisplay(nuevoTotal) {
 
 // ── COMPARTIR EN GRUPO ─────────────────────────────────────────
 let gruposCompartir = null;
+let gruposCompartidosIds = new Set();
 
 function escHtml(str) {
   return String(str || '')
@@ -634,7 +640,17 @@ function cerrarCompartir(ev) {
   setShareStatus('');
 }
 
+function actualizarShareBadge() {
+  const badge = document.getElementById('shareBadge');
+  if (!badge) return;
+  badge.style.display = gruposCompartidosIds.size ? 'inline-flex' : 'none';
+}
+
 async function abrirCompartir() {
+  if (!IS_OWNER) {
+    setShareStatus('Solo el propietario puede compartir este tiquet.', true);
+    return;
+  }
   const ov = document.getElementById('shareOverlay');
   if (ov) ov.classList.add('visible');
   cargarGruposParaCompartir();
@@ -648,20 +664,25 @@ async function cargarGruposParaCompartir() {
   const list = document.getElementById('shareList');
   if (!list) return;
 
-  if (gruposCompartir && gruposCompartir.length) {
-    renderGruposCompartir(gruposCompartir);
-    return;
-  }
-
   list.innerHTML = '<div class="pl-loading">Cargando grupos...</div>';
   setShareStatus('');
 
   try {
-    const res    = await fetch('/api/grupos');
-    const data   = await safeJson(res);
-    const grupos = Array.isArray(data) ? data : (data?.grupos || []);
+    const [resGrupos, resCompartidos] = await Promise.all([
+      fetch('/api/grupos'),
+      TIQUET_DB_ID ? fetch(`/api/tiquets/${TIQUET_DB_ID}/grupos`) : Promise.resolve(null),
+    ]);
+    const dataGrupos = await safeJson(resGrupos);
+    const dataCompartidos = resCompartidos ? await safeJson(resCompartidos) : [];
+    const grupos = Array.isArray(dataGrupos) ? dataGrupos : (dataGrupos?.grupos || []);
+    const ids = Array.isArray(dataCompartidos) ? dataCompartidos : [];
+
     gruposCompartir = grupos;
+    gruposCompartidosIds = new Set(
+      ids.map(id => Number(id)).filter(id => Number.isFinite(id))
+    );
     renderGruposCompartir(gruposCompartir);
+    actualizarShareBadge();
   } catch {
     list.innerHTML = '<div class="pl-loading" style="color:var(--red);">No se pudieron cargar tus grupos.</div>';
   }
@@ -677,16 +698,19 @@ function renderGruposCompartir(grupos) {
   }
 
   list.innerHTML = grupos.map(g => {
-    const id     = g.id || g.id_grupo || g.grupo_id || g.uuid;
-    if (!id) return '';
+    const idRaw  = g.id || g.id_grupo || g.grupo_id || g.uuid;
+    if (!idRaw) return '';
+    const idNum  = Number(idRaw);
+    const isShared = Number.isFinite(idNum) && gruposCompartidosIds.has(idNum);
     const nombre = escHtml(g.nombre || g.name || 'Grupo');
     const rol    = escHtml(g.rol || g.mi_rol || '');
-    return `<button type="button" class="share-item"
-              data-grupo-id="${escHtml(String(id))}"
-              data-grupo-nombre="${nombre}">
+    return `<button type="button" class="share-item${isShared ? ' is-shared' : ''}"
+              data-grupo-id="${escHtml(String(idRaw))}"
+              data-grupo-nombre="${nombre}"
+              data-shared="${isShared ? '1' : '0'}">
               <span><strong>${nombre}</strong><br>
               <small style="color:var(--text3);">${rol}</small></span>
-              <span style="color:var(--accent);font-weight:700;">Compartir →</span>
+              <span class="${isShared ? 'share-action-remove' : 'share-action-add'}">${isShared ? 'Quitar del grupo' : 'Compartir →'}</span>
             </button>`;
   }).join('');
 }
@@ -695,8 +719,38 @@ function compartirEnGrupoDesdeBtn(btnEl) {
   if (!btnEl) return;
   const grupoId     = btnEl.dataset.grupoId;
   const nombreGrupo = btnEl.dataset.grupoNombre || 'Grupo';
+  const isShared    = btnEl.dataset.shared === '1';
   if (!grupoId) { setShareStatus('No se encontró el identificador del grupo.', true); return; }
-  compartirEnGrupo(grupoId, nombreGrupo, btnEl);
+  if (isShared) {
+    quitarCompartirEnGrupo(grupoId, nombreGrupo, btnEl);
+  } else {
+    compartirEnGrupo(grupoId, nombreGrupo, btnEl);
+  }
+}
+
+async function quitarCompartirEnGrupo(grupoId, nombreGrupo, btnEl) {
+  if (!grupoId || !TIQUET_DB_ID) return;
+  if (btnEl) btnEl.disabled = true;
+  setShareStatus('Quitando del grupo...');
+  try {
+    const gid = encodeURIComponent(String(grupoId));
+    const res = await fetch(`/api/tiquets/${TIQUET_DB_ID}/grupos/${gid}`, {
+      method: 'DELETE',
+    });
+    if (res.ok) {
+      gruposCompartidosIds.delete(Number(grupoId));
+      renderGruposCompartir(gruposCompartir || []);
+      actualizarShareBadge();
+      setShareStatus('✅ Tiquet quitado de "' + nombreGrupo + '"');
+    } else {
+      const d = await safeJson(res);
+      setShareStatus(d?.error || 'No se pudo quitar del grupo.', true);
+    }
+  } catch {
+    setShareStatus('Error de conexión al quitar.', true);
+  } finally {
+    if (btnEl) btnEl.disabled = false;
+  }
 }
 
 async function compartirEnGrupo(grupoId, nombreGrupo, btnEl) {
@@ -733,8 +787,9 @@ async function compartirEnGrupo(grupoId, nombreGrupo, btnEl) {
     }
     if (ok) {
       setShareStatus('✅ Tiquet compartido en "' + nombreGrupo + '"');
-      const badge = document.getElementById('shareBadge');
-      if (badge) badge.style.display = 'inline-flex';
+      gruposCompartidosIds.add(Number(grupoId));
+      renderGruposCompartir(gruposCompartir || []);
+      actualizarShareBadge();
       setTimeout(() => cerrarCompartir(), 700);
     } else {
       setShareStatus(errMsg || 'No se pudo compartir el tiquet.', true);

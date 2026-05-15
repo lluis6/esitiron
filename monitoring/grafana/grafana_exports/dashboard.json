@@ -3108,7 +3108,7 @@
         "kind": "Panel",
         "spec": {
           "id": 7,
-          "title": "Nginx Conexiones Activas",
+          "title": "Sesiones Autenticadas Activas (Web)",
           "description": "",
           "links": [],
           "data": {
@@ -3123,8 +3123,8 @@
                       "group": "",
                       "version": "v0",
                       "spec": {
-                        "expr": "nginx_connections_active{job=\"nginx\"}",
-                        "legendFormat": "Activas"
+                        "expr": "sesiones_autenticadas_activas{job=\"esitiron_web\"}",
+                        "legendFormat": "Sesiones"
                       }
                     },
                     "refId": "A",

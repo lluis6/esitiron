@@ -1,0 +1,15 @@
+apiVersion: 1
+contactPoints:
+    - orgId: 1
+      name: Telegram
+      receivers:
+        - uid: dfkcyu6kbz20wc
+          type: telegram
+          settings:
+            bottoken: 8732642837:AAF9jTQ3xje3YOTK7VKpPiDH5yoR0ZZ3ARA
+            chatid: "AQUI PONER EL CHAT ID DEL GRUPO O USUARIO"
+            disable_notification: false
+            disable_web_page_preview: false
+            message: "{{ if eq .Status \"firing\" }}\U0001F6A8 ALERTA ACTIVADA \U0001F6A8{{ else }}✅ SISTEMA RESTABLECIDO ✅{{ end }}\n━━━━━━━━━━━━━━━━━━\n{{ range .Alerts }}\n\U0001F4E6 Contenedor: {{ or .Labels.container_name .Labels.name \"Desconocido\" }}\n\U0001F5A5️ Servidor: {{ .Labels.instance }}\n{{ if eq .Status \"firing\" }}\n\U0001F4CC Problema: {{ .Annotations.summary }}\n\U0001F4DD Detalle: {{ .Annotations.description }}\n\U0001F4CA Tiempo: {{ if .Values.B }}{{ printf \"%.0f\" .Values.B }}s{{ else }}N/A{{ end }}\n{{ else }}\n\U0001F7E2 Estado: En línea nuevamente.\n{{ end }}\n━━━━━━━━━━━━━━━━━━\n{{ end }}"
+            protect_content: false
+          disableResolveMessage: false

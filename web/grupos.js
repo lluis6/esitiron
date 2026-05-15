@@ -448,6 +448,46 @@ router.get('/api/tiquets/:id/grupos', auth, async (req, res) => {
 });
 
 /**
+ * DELETE /api/tiquets/:id/grupos/:grupoId
+ * Quitar un tiquet de un grupo sin borrar el tiquet.
+ */
+router.delete('/api/tiquets/:id/grupos/:grupoId', auth, async (req, res) => {
+  const uid = req.session.usuario.id;
+  const tiquetId = parseInt(req.params.id, 10);
+  const grupoId = parseInt(req.params.grupoId, 10);
+
+  if (!Number.isFinite(tiquetId) || !Number.isFinite(grupoId)) {
+    return res.status(400).json({ error: 'Parametros invalidos' });
+  }
+
+  try {
+    const [[t]] = await db.execute(
+      'SELECT id FROM tiquets WHERE id = ? AND id_usuario = ?',
+      [tiquetId, uid]
+    );
+    if (!t) return res.status(403).json({ error: 'No autorizado' });
+
+    const [[miembro]] = await db.execute(
+      'SELECT id FROM miembros_grupo WHERE grupo_id = ? AND usuario_id = ?',
+      [grupoId, uid]
+    );
+    if (!miembro) return res.status(403).json({ error: 'No eres miembro de este grupo' });
+
+    const [result] = await db.execute(
+      'DELETE FROM tiquets_grupos WHERE tiquet_id = ? AND grupo_id = ?',
+      [tiquetId, grupoId]
+    );
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'Tiquet no encontrado en este grupo' });
+    }
+
+    return res.json({ success: true });
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+/**
  * GET /api/grupos/:id/tiquets
  * Listar todos los tiquets compartidos en un grupo. Solo miembros.
  */

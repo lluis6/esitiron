@@ -770,6 +770,19 @@ html.dark .voto-ya:has(✗) {
 }
 
 /* ── Hover estilo tiquet para filas de productos ────────────── */
+.table-container {
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.table-container thead th:first-child {
+  border-top-left-radius: var(--radius);
+}
+
+.table-container thead th:last-child {
+  border-top-right-radius: var(--radius);
+}
+
 .table-container .producto-row td {
   transition: background-color 0.15s ease, padding-left 0.2s ease;
 }

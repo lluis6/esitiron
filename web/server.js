@@ -97,6 +97,51 @@ const ticketsHoyGauge = new promClient.Gauge({
 });
 register.registerMetric(ticketsHoyGauge);
 
+const sessionStore = new session.MemoryStore();
+
+const sesionesAutenticadasGauge = new promClient.Gauge({
+  name: 'sesiones_autenticadas_activas',
+  help: 'Numero de sesiones autenticadas no expiradas en el servidor web',
+  async collect() {
+    try {
+      const total = await new Promise((resolve, reject) => {
+        sessionStore.all((err, sessions) => {
+          if (err) return reject(err);
+
+          const now = Date.now();
+          const count = Object.values(sessions || {}).filter((rawSession) => {
+            let parsed = rawSession;
+
+            if (typeof rawSession === 'string') {
+              try {
+                parsed = JSON.parse(rawSession);
+              } catch {
+                return false;
+              }
+            }
+
+            if (!parsed || !parsed.usuario) return false;
+
+            const expires = parsed.cookie?.expires
+              ? new Date(parsed.cookie.expires).getTime()
+              : null;
+
+            if (Number.isFinite(expires) && expires <= now) return false;
+            return true;
+          }).length;
+
+          resolve(count);
+        });
+      });
+
+      this.set(total);
+    } catch (e) {
+      console.error('[Prometheus] Error en gauge sesiones_autenticadas_activas:', e.message);
+    }
+  }
+});
+register.registerMetric(sesionesAutenticadasGauge);
+
 // ── Cifrado AES-256-GCM ───────────────────────────────────────
 const REQUIRED_ENV = ['SESSION_SECRET', 'AES_SALT'];
 const missingEnv = REQUIRED_ENV.filter((key) => !process.env[key] || process.env[key].trim() === '');
@@ -215,7 +260,7 @@ if (!fs.existsSync(OPF_UPLOADS_DIR)) fs.mkdirSync(OPF_UPLOADS_DIR, { recursive: 
 // ── Base de datos ─────────────────────────────────────────────
 const dbPool = mysql.createPool({
   host:               process.env.DB_HOST     || 'db',
-  port:               parseInt(process.env.DB_PORT) || 3306, // <--- AÑADE ESTA LÍNEA
+  port:               parseInt(process.env.DB_PORT) || 3306,
   user:               process.env.DB_USER     || 'user_seguro',
   password:           process.env.DB_PASSWORD || 'password',
   database:           process.env.DB_NAME     || 'tiquets_db',
@@ -253,109 +298,10 @@ async function initDB() {
   await dbPool.execute(`ALTER TABLE productos_maestros ADD COLUMN IF NOT EXISTS codigo_barras VARCHAR(50) DEFAULT NULL`).catch(() => {});
   await dbPool.execute(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS es_admin TINYINT(1) NOT NULL DEFAULT 0`).catch(() => {});
 
-  await dbPool.execute(`
-    CREATE TABLE IF NOT EXISTS diccionario_productos (
-      id                  INT UNSIGNED    NOT NULL AUTO_INCREMENT,
-      nombre_en_tiquet    VARCHAR(500)    NOT NULL,
-      id_producto_maestro INT UNSIGNED    NOT NULL,
-      usos                INT             NOT NULL DEFAULT 1,
-      creado_en           DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      actualizado_en      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      PRIMARY KEY (id),
-      UNIQUE KEY uk_nombre (nombre_en_tiquet(191)),
-      INDEX idx_producto (id_producto_maestro),
-      FOREIGN KEY (id_producto_maestro) REFERENCES productos_maestros(id) ON DELETE CASCADE
-    ) ENGINE=InnoDB
-  `);
-
-  await dbPool.execute(`
-    CREATE TABLE IF NOT EXISTS verificaciones_barcode (
-      id              INT UNSIGNED    NOT NULL AUTO_INCREMENT,
-      id_producto     INT UNSIGNED    NOT NULL,
-      codigo_barras   VARCHAR(50)     NOT NULL,
-      votos_si        INT             NOT NULL DEFAULT 0,
-      votos_no        INT             NOT NULL DEFAULT 0,
-      estado          ENUM('pendiente','verificado','rechazado') NOT NULL DEFAULT 'pendiente',
-      creado_en       DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (id),
-      UNIQUE KEY uk_prod_barcode (id_producto, codigo_barras),
-      FOREIGN KEY (id_producto) REFERENCES productos_maestros(id) ON DELETE CASCADE,
-      INDEX idx_estado (estado)
-    ) ENGINE=InnoDB
-  `);
-
-  await dbPool.execute(`
-    CREATE TABLE IF NOT EXISTS votos_usuario (
-      id              INT UNSIGNED    NOT NULL AUTO_INCREMENT,
-      id_usuario      INT UNSIGNED    NOT NULL,
-      id_verificacion INT UNSIGNED    NOT NULL,
-      voto            ENUM('si','no') NOT NULL,
-      votado_en       DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (id),
-      UNIQUE KEY uk_usuario_verif (id_usuario, id_verificacion),
-      FOREIGN KEY (id_usuario)      REFERENCES usuarios(id)               ON DELETE CASCADE,
-      FOREIGN KEY (id_verificacion) REFERENCES verificaciones_barcode(id) ON DELETE CASCADE
-    ) ENGINE=InnoDB
-  `);
-
-  await dbPool.execute(`
-    CREATE TABLE IF NOT EXISTS verificaciones_producto (
-      id              INT UNSIGNED    NOT NULL AUTO_INCREMENT,
-      id_producto     INT UNSIGNED    NOT NULL,
-      id_usuario      INT UNSIGNED    NOT NULL,
-      motivo          VARCHAR(255)    DEFAULT NULL,
-      estado          ENUM('pendiente','rechazado','eliminado','desvinculado') NOT NULL DEFAULT 'pendiente',
-      creado_en       DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (id),
-      INDEX idx_producto_estado (id_producto, estado),
-      FOREIGN KEY (id_producto) REFERENCES productos_maestros(id) ON DELETE CASCADE,
-      FOREIGN KEY (id_usuario)  REFERENCES usuarios(id) ON DELETE CASCADE
-    ) ENGINE=InnoDB
-  `);
 
   await dbPool.execute(
     "ALTER TABLE verificaciones_producto MODIFY estado ENUM('pendiente','rechazado','eliminado','desvinculado') NOT NULL DEFAULT 'pendiente'"
   ).catch(() => {});
-
-  await dbPool.execute(`
-    CREATE TABLE IF NOT EXISTS opf_drafts (
-      id             INT UNSIGNED NOT NULL AUTO_INCREMENT,
-      id_usuario     INT UNSIGNED NOT NULL,
-      ean            VARCHAR(50)  NOT NULL,
-      nombre         VARCHAR(200) NOT NULL,
-      marca          VARCHAR(100) NOT NULL,
-      foto_path      VARCHAR(255) DEFAULT NULL,
-      estado         ENUM('draft','sent','failed') NOT NULL DEFAULT 'draft',
-      opf_response   TEXT         DEFAULT NULL,
-      error_msg      VARCHAR(500) DEFAULT NULL,
-      creado_en      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      actualizado_en DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      PRIMARY KEY (id),
-      INDEX idx_opf_usuario (id_usuario),
-      INDEX idx_opf_ean (ean),
-      FOREIGN KEY (id_usuario) REFERENCES usuarios(id) ON DELETE CASCADE
-    ) ENGINE=InnoDB
-  `);
-
-  await dbPool.execute(`
-    CREATE TABLE IF NOT EXISTS opf_pendientes (
-      id             INT UNSIGNED NOT NULL AUTO_INCREMENT,
-      id_usuario     INT UNSIGNED NOT NULL,
-      ean            VARCHAR(50)  NOT NULL,
-      nombre         VARCHAR(200) NOT NULL,
-      marca          VARCHAR(100) NOT NULL,
-      foto_path      VARCHAR(255) DEFAULT NULL,
-      estado         ENUM('pendiente','enviado','rechazado','fallido') NOT NULL DEFAULT 'pendiente',
-      opf_response   TEXT         DEFAULT NULL,
-      error_msg      VARCHAR(500) DEFAULT NULL,
-      creado_en      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      actualizado_en DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      PRIMARY KEY (id),
-      INDEX idx_opf_pend_usuario (id_usuario),
-      INDEX idx_opf_pend_estado  (estado),
-      FOREIGN KEY (id_usuario) REFERENCES usuarios(id) ON DELETE CASCADE
-    ) ENGINE=InnoDB
-  `);
 
   await dbPool.execute(`
     UPDATE compras c
@@ -379,6 +325,7 @@ const TIENDAS_MAP = {
   'CARREFOUR':'Carrefour','ALCAMPO':'Alcampo','DIA':'Dia','CAPRABO':'Caprabo',
   'BONPREU':'Bonpreu','EROSKI':'Eroski','SPAR':'Spar',
 };
+
 function normalizarTienda(nombre) {
   if (!nombre) return 'Desconocido';
   const up = nombre.toUpperCase();
@@ -543,6 +490,7 @@ app.use(express.json());
 //                    cookie (protección XSS).
 // ══════════════════════════════════════════════════════════════
 app.use(session({
+  store:             sessionStore,
   secret:            SESSION_SECRET,
   resave:            true,              // Cambiado a true para forzar guardado
   saveUninitialized: true,              // Cambiado a true para depurar
@@ -706,11 +654,14 @@ async function getTiquets(uid, limit = null) {
   const limitClause = limit ? `LIMIT ${parseInt(limit, 10)}` : '';
   const [rows] = await dbPool.execute(`
     SELECT t.id, t.uuid, t.supermercado, t.fecha_compra, t.total_tiquet,
-           COUNT(c.id) AS total_articulos,
-           (SELECT COUNT(*) FROM tiquets_grupos tg WHERE tg.tiquet_id = t.id) AS en_grupo,
+           COUNT(DISTINCT c.id) AS total_articulos,
+           COUNT(DISTINCT tg.grupo_id) AS en_grupo,
+           GROUP_CONCAT(DISTINCT g.nombre ORDER BY g.nombre SEPARATOR ', ') AS grupos_compartidos,
            (SELECT COUNT(*) FROM tiquets t2 WHERE t2.id_usuario=? AND t2.id<=t.id) AS num_usuario
     FROM tiquets t
     LEFT JOIN compras c ON c.id_tiquet=t.id AND c.es_descuento=0
+    LEFT JOIN tiquets_grupos tg ON tg.tiquet_id = t.id
+    LEFT JOIN grupos g ON g.id = tg.grupo_id
     WHERE t.id_usuario=?
     GROUP BY t.id ORDER BY t.fecha_compra DESC ${limitClause}
   `, [uid, uid]);

@@ -308,6 +308,9 @@ tr.descuento td { background: rgba(239,68,68,0.04); }
   cursor: pointer; text-align: left;
 }
 .share-item:hover { border-color: var(--accent-mid); background: var(--surface); }
+.share-item.is-shared:hover { border-color: rgba(248,113,113,0.4); background: var(--red-lt); }
+.share-action-add { color: var(--accent); font-weight: 700; }
+.share-action-remove { color: var(--red); font-weight: 700; }
 .share-status { margin-top: .5rem; font-size: .8rem; color: var(--text3); }
 
 /* ── Loading placeholder ─────────────────────────────────────── */

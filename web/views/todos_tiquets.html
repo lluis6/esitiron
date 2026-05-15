@@ -117,7 +117,9 @@
           <div class="tiquet-tienda">
             {{ tiquet.supermercado }}
             {% if tiquet.en_grupo %}
-              <span class="tiquet-badge">👥 En grupo</span>
+              <span class="tiquet-badge tiquet-group-badge" title="{{ tiquet.grupos_compartidos or 'En grupo' }}">
+                👥 {{ tiquet.grupos_compartidos or 'En grupo' }}
+              </span>
             {% endif %}
           </div>
           <div class="tiquet-fecha">{{ tiquet.fecha_compra | formatDate }}</div>

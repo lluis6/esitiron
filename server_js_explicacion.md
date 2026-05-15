@@ -151,5 +151,3 @@ Este documento explica el funcionamiento del archivo server.js por bloques. El o
 - Inicia app Express.
 
 ---
-
-Si quieres, puedo ampliar cada bloque con ejemplos de codigo o referencias a lineas concretas.
