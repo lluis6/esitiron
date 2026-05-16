@@ -63,7 +63,8 @@ fi
 
 # Backup de archivos Docker
 echo "Comprimiendo archivos de Docker..."
-tar -czf "$ARCHIVO_DOCKER" --exclude='node_modules' \
+tar -czf "$ARCHIVO_DOCKER" \
+     --exclude='.gitignore' \
     --exclude='.git' \
     --exclude='.env' \
     -C "$DOCKER_DIR" .
